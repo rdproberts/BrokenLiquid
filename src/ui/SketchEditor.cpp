@@ -7,10 +7,16 @@
 #include "ui/PropertyPanel.h"
 #include "ui/Theme.h"
 
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRep_Tool.hxx>
+#include <GCPnts_QuasiUniformDeflection.hxx>
+#include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <V3d_View.hxx>
+#include <gp_Circ.hxx>
 
 #include <QCheckBox>
 #include <QLabel>
@@ -20,6 +26,7 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTimer>
 
 #include <spdlog/spdlog.h>
@@ -48,7 +55,7 @@ TCollection_ExtendedString ext(const QString& s) {
 // Colours of sketch mode: blue under defined, black (white on dark) fully defined, red over defined.
 struct Palette {
     Quantity_Color defined, under, over, selected, hover, dimension, driven, glyphText, glyphBox, preview, snap,
-        inference, origin;
+        inference, origin, region, problem;
 };
 
 Palette palette() {
@@ -67,6 +74,8 @@ Palette palette() {
     p.snap = rgb(255, 140, 0);
     p.inference = dark ? rgb(140, 170, 220) : rgb(90, 120, 180);
     p.origin = rgb(210, 40, 40);
+    p.region = dark ? rgb(110, 150, 215) : rgb(120, 160, 225);
+    p.problem = rgb(230, 40, 40);
     return p;
 }
 
@@ -281,6 +290,7 @@ void SketchEditor::teardown() {
         if (!m_prs.IsNull()) {
             v->remove(m_prs);
         }
+        v->setSelectionFilter(true, true, true);
         v->setModelPickable(true);
         v->unsetCursor();
     }
@@ -338,14 +348,50 @@ void SketchEditor::unitsChanged() {
 void SketchEditor::setTool(Tool tool) {
     closeValueEditor(true);
     cancelGesture();
+    const Tool previous = m_tool;
     m_tool = tool;
+    m_toolPicks.clear();
+    m_mirrorAxis = 0;
+    m_pickAxis = false;
+    m_issueFocus = -1;
+    if (tool == Tool::Offset || tool == Tool::Mirror) {
+        // Entities selected beforehand are what the tool works on; for Mirror a lone centerline
+        // among them is the line to mirror about.
+        for (Id id : m_selected) {
+            const Curve* c = sketch().curve(id);
+            const Point* p = sketch().point(id);
+            if (c || (tool == Tool::Mirror && p && p->owner == 0)) {
+                m_toolPicks.insert(id);
+            }
+        }
+        if (tool == Tool::Mirror) {
+            std::vector<Id> centerlines;
+            for (Id id : m_toolPicks) {
+                if (const Curve* c = sketch().curve(id); c && c->type == CurveType::Line && c->construction) {
+                    centerlines.push_back(id);
+                }
+            }
+            if (centerlines.size() == 1 && m_toolPicks.size() > 1) {
+                m_mirrorAxis = centerlines.front();
+                m_toolPicks.erase(m_mirrorAxis);
+            }
+        }
+    }
     if (tool != Tool::Select) {
         m_selected.clear();
     }
     m_hover = {};
     if (render::OcctViewer* v = viewer()) {
         v->setCursor(tool == Tool::Select ? Qt::ArrowCursor : Qt::CrossCursor);
+        if (tool == Tool::Convert && previous != Tool::Convert) {
+            v->setSelectionFilter(true, true, false);
+            v->setModelPickable(true);
+        } else if (tool != Tool::Convert && previous == Tool::Convert) {
+            v->setModelPickable(false);
+            v->setSelectionFilter(true, true, true);
+        }
     }
+    refreshAnalysis();
     rebuildPanel();
     redraw();
     emit stateChanged();
@@ -374,6 +420,10 @@ bool SketchEditor::enterPressed() {
         closeValueEditor(true);
     } else if (!m_clicks.empty()) {
         endChain();
+    } else if (m_tool == Tool::Offset) {
+        applyOffset();
+    } else if (m_tool == Tool::Mirror) {
+        applyMirror();
     }
     return true; // Enter never leaves the sketch; use the corner or the Sketch button
 }
@@ -435,6 +485,30 @@ void SketchEditor::showRelations(bool on) {
     redraw();
 }
 
+void SketchEditor::shadeRegions(bool on) {
+    m_shadeRegions = on;
+    redraw();
+}
+
+void SketchEditor::setPolygonSides(int sides) {
+    m_polygonSides = std::clamp(sides, 3, 64);
+    redraw();
+}
+
+void SketchEditor::setFilletRadius(double mm) {
+    if (mm > 0.0) {
+        m_filletRadius = mm;
+    }
+}
+
+void SketchEditor::setOffsetDistance(double mm, bool reverse) {
+    if (mm > 0.0) {
+        m_offsetDistance = mm;
+    }
+    m_offsetReverse = reverse;
+    redraw();
+}
+
 void SketchEditor::select(const std::vector<Id>& ids) {
     m_selected = std::set<Id>(ids.begin(), ids.end());
     rebuildPanel();
@@ -484,7 +558,39 @@ void SketchEditor::commitEdit() {
 
 void SketchEditor::solveAll() {
     m_solve = solve(sk());
+    refreshAnalysis();
     updateStatus();
+}
+
+void SketchEditor::refreshAnalysis() {
+    m_contours = findRegions(sketch());
+    if (m_tool == Tool::Doctor) {
+        m_issues = diagnose(sketch(), 10.0 * m_px);
+        if (m_issueFocus >= static_cast<int>(m_issues.size())) {
+            m_issueFocus = -1;
+        }
+    } else {
+        m_issues.clear();
+    }
+}
+
+bool SketchEditor::applyEdit(const std::function<bool(Sketch&)>& op, const QString& failure) {
+    Sketch before = sketch();
+    if (!op(sk())) {
+        sk() = std::move(before);
+        if (!failure.isEmpty()) {
+            m_host.showStatus(failure, 6000);
+        }
+        redraw();
+        return false;
+    }
+    m_undo.push_back(std::move(before));
+    if (m_undo.size() > 200) {
+        m_undo.erase(m_undo.begin());
+    }
+    m_redo.clear();
+    commitEdit();
+    return true;
 }
 
 void SketchEditor::updateStatus() {
@@ -691,8 +797,16 @@ void SketchEditor::clickAt(double u, double v) {
         dimensionClick(at);
         return;
     }
-    const bool lineTool = m_tool == Tool::Line || m_tool == Tool::Centerline;
-    const std::optional<P2> anchor = lineTool && !m_clicks.empty() ? std::optional<P2>(m_clicks.back().at) : std::nullopt;
+    if (isPickTool()) {
+        pickClick(at);
+        return;
+    }
+    if (m_tool == Tool::Convert || m_tool == Tool::Doctor) {
+        return;
+    }
+    const bool anchored = ((m_tool == Tool::Line || m_tool == Tool::Centerline) && !m_clicks.empty()) ||
+                          (m_tool == Tool::Slot && m_clicks.size() == 1);
+    const std::optional<P2> anchor = anchored ? std::optional<P2>(m_clicks.back().at) : std::nullopt;
     m_cursor = snapAt(at, anchor);
     m_haveCursor = true;
     toolClick(m_cursor);
@@ -870,6 +984,54 @@ void SketchEditor::toolClick(const Snap& snap) {
         commitEdit();
         return;
     }
+    case Tool::Slot: {
+        if (m_clicks.size() < 2) {
+            if (m_clicks.size() == 1 && length(snap.at - m_clicks[0].at) < tiny) {
+                return;
+            }
+            m_clicks.push_back(snap);
+            redraw();
+            return;
+        }
+        const Snap a = m_clicks[0], b = m_clicks[1];
+        const double half = std::abs(cross(normalized(b.at - a.at), snap.at - a.at));
+        if (half < tiny) {
+            return;
+        }
+        beginEdit();
+        const auto ids = addSlot(s, a.at, b.at, half);
+        const Curve axis = *s.curve(ids[4]);
+        applySnap(axis.p1, a);
+        applySnap(axis.p2, b);
+        if (b.kind == Snap::Free && b.horizontal) {
+            s.addRelation(ConstraintType::Horizontal, {ids[4]});
+        } else if (b.kind == Snap::Free && b.vertical) {
+            s.addRelation(ConstraintType::Vertical, {ids[4]});
+        }
+        m_clicks.clear();
+        commitEdit();
+        return;
+    }
+    case Tool::Polygon: {
+        if (m_clicks.empty()) {
+            m_clicks = {snap};
+            redraw();
+            return;
+        }
+        const Snap center = m_clicks[0];
+        if (length(snap.at - center.at) < tiny) {
+            return;
+        }
+        beginEdit();
+        const std::vector<Id> ids = addPolygon(s, center.at, snap.at, m_polygonSides);
+        applySnap(s.curve(ids.back())->center, center);
+        if (snap.kind != Snap::Free) {
+            applySnap(s.curve(ids.front())->p1, snap);
+        }
+        m_clicks.clear();
+        commitEdit();
+        return;
+    }
     case Tool::Point: {
         beginEdit();
         const Id point = s.addPoint(snap.at.x, snap.at.y);
@@ -881,9 +1043,255 @@ void SketchEditor::toolClick(const Snap& snap) {
         commitEdit();
         return;
     }
-    case Tool::Select:
-    case Tool::Dimension: return;
+    default: return;
     }
+}
+
+// --- Fillet, trim, extend, offset, mirror, convert ---------------------------------------------------
+
+bool SketchEditor::isPickTool() const {
+    return m_tool == Tool::Fillet || m_tool == Tool::Trim || m_tool == Tool::Extend || m_tool == Tool::Offset ||
+           m_tool == Tool::Mirror;
+}
+
+std::vector<Id> SketchEditor::chainOf(Id curve) const {
+    // Curves joined end to end with `curve` (by position), as Offset picks a whole contour.
+    const Sketch& s = sketch();
+    const double tol = 1e-6 * std::max(1.0, m_px * 1000.0);
+    std::vector<Id> chain{curve};
+    for (size_t i = 0; i < chain.size(); ++i) {
+        const Curve* c = s.curve(chain[i]);
+        if (!c || c->type == CurveType::Circle) {
+            continue;
+        }
+        for (Id end : {c->p1, c->p2}) {
+            const P2 at = pointOf(s, end);
+            for (const Curve& o : s.curves()) {
+                if (o.type == CurveType::Circle || o.construction != c->construction ||
+                    std::find(chain.begin(), chain.end(), o.id) != chain.end()) {
+                    continue;
+                }
+                if (length(pointOf(s, o.p1) - at) < tol || length(pointOf(s, o.p2) - at) < tol) {
+                    chain.push_back(o.id);
+                }
+            }
+        }
+    }
+    return chain;
+}
+
+void SketchEditor::pickClick(P2 at) {
+    const Hit h = hitAt(at, false);
+    const Sketch& s = sketch();
+    switch (m_tool) {
+    case Tool::Fillet: {
+        Id corner = 0;
+        if (h.kind == Hit::Point) {
+            corner = h.id;
+        } else if (const Curve* c = h.kind == Hit::Curve ? s.curve(h.id) : nullptr; c && c->type == CurveType::Line) {
+            corner = length(pointOf(s, c->p1) - at) <= length(pointOf(s, c->p2) - at) ? c->p1 : c->p2;
+        }
+        if (!corner) {
+            m_host.showStatus(tr("Click the corner where two lines meet."));
+            return;
+        }
+        const double radius = m_filletRadius;
+        applyEdit([corner, radius](Sketch& k) { return filletCorner(k, corner, radius).has_value(); },
+                  tr("No fillet there: pick a corner of two lines long enough for the radius."));
+        return;
+    }
+    case Tool::Trim:
+    case Tool::Extend: {
+        if (h.kind != Hit::Curve) {
+            return;
+        }
+        const Id id = h.id;
+        if (m_tool == Tool::Trim) {
+            applyEdit([id, at](Sketch& k) { return trim(k, id, at); }, QString());
+        } else {
+            applyEdit([id, at](Sketch& k) { return extend(k, id, at); }, tr("Nothing to extend to in that direction."));
+        }
+        m_hover = {};
+        redraw();
+        return;
+    }
+    case Tool::Offset:
+    case Tool::Mirror: {
+        const bool curve = h.kind == Hit::Curve;
+        const bool point = h.kind == Hit::Point && s.point(h.id) && s.point(h.id)->owner == 0 && h.id != s.origin();
+        if (!curve && !(point && m_tool == Tool::Mirror)) {
+            return;
+        }
+        if (m_tool == Tool::Mirror && curve) {
+            const Curve* c = s.curve(h.id);
+            const bool line = c && c->type == CurveType::Line;
+            if (line && (m_pickAxis || (!m_mirrorAxis && c->construction))) {
+                m_mirrorAxis = h.id;
+                m_toolPicks.erase(h.id);
+                m_pickAxis = false;
+                rebuildPanel();
+                redraw();
+                return;
+            }
+            if (h.id == m_mirrorAxis) {
+                m_mirrorAxis = 0;
+                rebuildPanel();
+                redraw();
+                return;
+            }
+        }
+        std::vector<Id> ids{h.id};
+        if (m_tool == Tool::Offset && m_offsetChain) {
+            ids = chainOf(h.id);
+        }
+        const bool remove = m_toolPicks.count(h.id) > 0;
+        for (Id id : ids) {
+            if (remove) {
+                m_toolPicks.erase(id);
+            } else {
+                m_toolPicks.insert(id);
+            }
+        }
+        rebuildPanel();
+        redraw();
+        return;
+    }
+    default: return;
+    }
+}
+
+bool SketchEditor::applyOffset() {
+    if (m_toolPicks.empty()) {
+        m_host.showStatus(tr("Click the entities to offset first."));
+        return false;
+    }
+    const std::vector<Id> picks(m_toolPicks.begin(), m_toolPicks.end());
+    const double distance = signedOffset();
+    const bool dims = m_offsetDimensions;
+    const bool ok = applyEdit([&](Sketch& k) { return !offset(k, picks, distance, dims).empty(); },
+                              tr("The offset collapses at that distance; try a smaller one or reverse it."));
+    if (ok) {
+        m_toolPicks.clear();
+        rebuildPanel();
+        redraw();
+    }
+    return ok;
+}
+
+bool SketchEditor::applyMirror() {
+    if (!m_mirrorAxis || m_toolPicks.empty()) {
+        m_host.showStatus(tr("Pick the entities to mirror and the line to mirror about."));
+        return false;
+    }
+    const std::vector<Id> picks(m_toolPicks.begin(), m_toolPicks.end());
+    const Id axis = m_mirrorAxis;
+    const bool ok = applyEdit([&](Sketch& k) { return !mirror(k, picks, axis).empty(); }, tr("Nothing to mirror."));
+    if (ok) {
+        m_toolPicks.clear();
+        rebuildPanel();
+        redraw();
+    }
+    return ok;
+}
+
+int SketchEditor::convertEdge(const TopoDS_Edge& edge) {
+    Sketch& s = sk();
+    const gp_Ax3& a = m_feature.plane;
+    auto flat = [&a](const gp_Pnt& p) {
+        const gp_Vec d(a.Location(), p);
+        return P2{d.Dot(gp_Vec(a.XDirection())), d.Dot(gp_Vec(a.YDirection()))};
+    };
+    auto fix = [&s](Id id) { s.addRelation(ConstraintType::Fix, {id}); };
+    BRepAdaptor_Curve c(edge);
+    const double f = c.FirstParameter(), l = c.LastParameter();
+    if (c.GetType() == GeomAbs_Line) {
+        const P2 p = flat(c.Value(f)), q = flat(c.Value(l));
+        if (length(q - p) < 1e-9) {
+            return 0;
+        }
+        fix(s.addLine(p.x, p.y, q.x, q.y));
+        return 1;
+    }
+    if (c.GetType() == GeomAbs_Circle && c.Circle().Axis().Direction().IsParallel(a.Direction(), 1e-6)) {
+        const gp_Circ circle = c.Circle();
+        const P2 center = flat(circle.Location());
+        if (std::abs(l - f - 2.0 * kPi) < 1e-9 || BRep_Tool::IsClosed(edge)) {
+            fix(s.addCircle(center.x, center.y, circle.Radius()));
+            return 1;
+        }
+        const P2 p = flat(c.Value(f)), q = flat(c.Value(l)), m = flat(c.Value(0.5 * (f + l)));
+        auto angle = [&center](P2 x) { return std::atan2(x.y - center.y, x.x - center.x); };
+        auto wrap = [](double x) { return std::fmod(std::fmod(x, 2.0 * kPi) + 2.0 * kPi, 2.0 * kPi); };
+        const bool ccw = wrap(angle(m) - angle(p)) < wrap(angle(q) - angle(p)); // p to q the short way round passes m
+        fix(ccw ? s.addArc(center.x, center.y, p.x, p.y, q.x, q.y) : s.addArc(center.x, center.y, q.x, q.y, p.x, p.y));
+        return 1;
+    }
+    // Anything else (splines, ellipses, circles seen at an angle): a polyline close to it.
+    GCPnts_QuasiUniformDeflection points(c, 0.02 * std::max(1.0, m_px * 20.0));
+    if (!points.IsDone() || points.NbPoints() < 2) {
+        return 0;
+    }
+    int added = 0;
+    P2 previous = flat(points.Value(1));
+    for (int i = 2; i <= points.NbPoints(); ++i) {
+        const P2 next = flat(points.Value(i));
+        if (length(next - previous) > 1e-9) {
+            fix(s.addLine(previous.x, previous.y, next.x, next.y));
+            ++added;
+            previous = next;
+        }
+    }
+    return added;
+}
+
+void SketchEditor::convertShape(const TopoDS_Shape& shape) {
+    if (shape.IsNull()) {
+        return;
+    }
+    Sketch before = sketch();
+    int added = 0;
+    if (shape.ShapeType() == TopAbs_EDGE) {
+        added = convertEdge(TopoDS::Edge(shape));
+    } else {
+        for (TopExp_Explorer ex(shape, TopAbs_EDGE); ex.More(); ex.Next()) {
+            added += convertEdge(TopoDS::Edge(ex.Current()));
+        }
+    }
+    if (added == 0) {
+        m_host.showStatus(tr("Nothing to convert there: pick a model edge or face."));
+        return;
+    }
+    m_undo.push_back(std::move(before));
+    m_redo.clear();
+    m_host.showStatus(tr("Converted %n entity(s); they follow the model and are held fixed.", nullptr, added));
+    commitEdit();
+}
+
+void SketchEditor::repairAll() {
+    const std::vector<Issue> issues = m_issues;
+    applyEdit(
+        [&issues](Sketch& k) {
+            bool any = false;
+            for (const Issue& i : issues) {
+                if (i.repairable) {
+                    any = repair(k, i) || any;
+                }
+            }
+            return any;
+        },
+        tr("Nothing the Sketch Doctor can repair by itself."));
+}
+
+QString SketchEditor::issueText(const Issue& issue) const {
+    QStringList names;
+    for (Id id : issue.ids) {
+        names << QString::fromStdString(sketch().name(id));
+    }
+    QString text = tr(issueName(issue.kind));
+    if (!names.isEmpty()) {
+        text += QStringLiteral(": ") + names.join(QStringLiteral(", "));
+    }
+    return text;
 }
 
 // --- Smart Dimension ------------------------------------------------------------------------------------
@@ -1293,6 +1701,7 @@ void SketchEditor::dragTo(P2 at) {
             o.moreDrags.push_back({m_dragPoints[i].first, m_dragPoints[i].second.x + delta.x, m_dragPoints[i].second.y + delta.y});
         }
         solve(sk(), o);
+        m_contours = findRegions(sketch());
         break;
     }
     case Drag::Radius: {
@@ -1307,6 +1716,7 @@ void SketchEditor::dragTo(P2 at) {
         if (!solve(sk(), o).converged) {
             sk() = keep;
         }
+        m_contours = findRegions(sketch());
         break;
     }
     case Drag::Label:
@@ -1377,6 +1787,12 @@ bool SketchEditor::mousePress(QMouseEvent* event) {
     if (event->button() != Qt::LeftButton) {
         return false;
     }
+    if (m_tool == Tool::Convert) {
+        if (const auto pick = viewer()->detectAt(event->position())) {
+            convertShape(pick->shape);
+        }
+        return true;
+    }
     m_pressed = true;
     m_dragging = false;
     m_pressPos = event->position();
@@ -1413,16 +1829,24 @@ void SketchEditor::mouseMove(QMouseEvent* event) {
         }
         return;
     }
-    if (m_tool == Tool::Dimension) {
-        m_hover = hitAt(*at, false);
+    if (m_tool == Tool::Dimension || isPickTool() || m_tool == Tool::Doctor) {
+        const Hit h = hitAt(*at, false);
+        const bool usable = m_tool == Tool::Dimension || m_tool == Tool::Doctor ||
+                            (m_tool == Tool::Fillet ? h.kind != Hit::None
+                                                    : h.kind == Hit::Curve || (m_tool == Tool::Mirror && h.kind == Hit::Point));
+        m_hover = usable ? h : Hit{};
         m_cursor = {};
         m_cursor.at = *at;
         m_haveCursor = true;
         redraw();
         return;
     }
-    const bool lineTool = m_tool == Tool::Line || m_tool == Tool::Centerline;
-    const std::optional<P2> anchor = lineTool && !m_clicks.empty() ? std::optional<P2>(m_clicks.back().at) : std::nullopt;
+    if (m_tool == Tool::Convert) {
+        return; // the viewer highlights model edges and faces under the pointer
+    }
+    const bool anchored = ((m_tool == Tool::Line || m_tool == Tool::Centerline) && !m_clicks.empty()) ||
+                          (m_tool == Tool::Slot && m_clicks.size() == 1);
+    const std::optional<P2> anchor = anchored ? std::optional<P2>(m_clicks.back().at) : std::nullopt;
     m_cursor = snapAt(*at, anchor);
     m_haveCursor = true;
     if (m_tool == Tool::Arc && m_clicks.size() == 2) {
@@ -1531,6 +1955,9 @@ void SketchEditor::rebuildPanel() {
             g->addText(statusLine())->setWordWrap(true);
             QCheckBox* relations = g->addCheck(tr("Show relations"), m_showRelations);
             connect(relations, &QCheckBox::toggled, this, &SketchEditor::showRelations);
+            QCheckBox* shade = g->addCheck(tr("Shade closed regions"), m_shadeRegions);
+            connect(shade, &QCheckBox::toggled, this, &SketchEditor::shadeRegions);
+            g->addText(tr("%n closed region(s)", nullptr, static_cast<int>(m_contours.regions.size())));
             break;
         }
         // One dimension: its value and driving state.
@@ -1676,6 +2103,126 @@ void SketchEditor::rebuildPanel() {
                             "the entity it starts from."));
         break;
     case Tool::Point: panel.setMessage(tr("Click to place sketch points.")); break;
+    case Tool::Slot:
+        panel.setMessage(tr("Click the centre of one end, then the other end, then how wide the slot is. Lines "
+                            "and end arcs stay tangent; the centerline gets horizontal or vertical when snapped."));
+        break;
+    case Tool::Polygon: {
+        panel.setMessage(tr("Click the centre, then a corner. The polygon is inscribed in a construction circle "
+                            "with equal sides."));
+        PanelGroup* g = panel.addGroup(tr("Parameters"));
+        auto* sides = new QSpinBox;
+        sides->setRange(3, 64);
+        sides->setValue(m_polygonSides);
+        connect(sides, &QSpinBox::valueChanged, this, [this](int n) { setPolygonSides(n); });
+        g->addRow(tr("Sides"), sides);
+        break;
+    }
+    case Tool::Fillet: {
+        panel.setMessage(tr("Click the corner where two lines meet (or a line near the corner). The corner is "
+                            "kept as a virtual sharp, so its dimensions stay."));
+        PanelGroup* g = panel.addGroup(tr("Fillet Parameters"));
+        LengthField* radius = g->addLength(tr("Radius"), m_filletRadius, units);
+        radius->setRange(1e-4, 1e6);
+        connect(radius, &LengthField::valueChanged, this, [this](double mm) { setFilletRadius(mm); });
+        break;
+    }
+    case Tool::Trim:
+        panel.setMessage(tr("Click the piece of a curve to remove, up to where other curves cross it. A curve "
+                            "that crosses nothing is deleted."));
+        break;
+    case Tool::Extend:
+        panel.setMessage(tr("Click a line or arc near the end to extend; it grows to the next curve it meets."));
+        break;
+    case Tool::Offset: {
+        panel.setMessage(tr("Click the entities to offset (a whole contour with Select chain), set the distance "
+                            "and press Apply or Enter. Closed contours go outwards; Reverse goes inwards."));
+        PanelGroup* g = panel.addGroup(tr("Parameters"));
+        g->addText(tr("%n entity(s) picked", nullptr, static_cast<int>(m_toolPicks.size())));
+        LengthField* distance = g->addLength(tr("Distance"), m_offsetDistance, units);
+        distance->setRange(1e-4, 1e6);
+        connect(distance, &LengthField::valueChanged, this, [this](double mm) { setOffsetDistance(mm, m_offsetReverse); });
+        QCheckBox* reverse = g->addCheck(tr("Reverse"), m_offsetReverse);
+        connect(reverse, &QCheckBox::toggled, this, [this](bool on) { setOffsetDistance(m_offsetDistance, on); });
+        QCheckBox* chain = g->addCheck(tr("Select chain"), m_offsetChain);
+        connect(chain, &QCheckBox::toggled, this, [this](bool on) { m_offsetChain = on; });
+        QCheckBox* dims = g->addCheck(tr("Add dimensions"), m_offsetDimensions);
+        connect(dims, &QCheckBox::toggled, this, [this](bool on) { m_offsetDimensions = on; });
+        auto* apply = new QPushButton(tr("Apply"));
+        apply->setEnabled(!m_toolPicks.empty());
+        connect(apply, &QPushButton::clicked, this, [this] { applyOffset(); });
+        g->addRow(QString(), apply);
+        break;
+    }
+    case Tool::Mirror: {
+        panel.setMessage(tr("Click the entities to mirror and a centerline to mirror about (or use Pick mirror "
+                            "line for a solid line), then press Apply or Enter. Copies stay symmetric."));
+        PanelGroup* g = panel.addGroup(tr("Options"));
+        g->addText(tr("%n entity(s) to mirror", nullptr, static_cast<int>(m_toolPicks.size())));
+        g->addText(m_mirrorAxis ? tr("Mirror about: %1").arg(QString::fromStdString(s.name(m_mirrorAxis)))
+                                : tr("Mirror about: (pick a line)"));
+        auto* pickAxis = new QPushButton(tr("Pick mirror line"));
+        pickAxis->setCheckable(true);
+        pickAxis->setChecked(m_pickAxis);
+        connect(pickAxis, &QPushButton::toggled, this, [this](bool on) { m_pickAxis = on; });
+        g->addRow(QString(), pickAxis);
+        auto* apply = new QPushButton(tr("Apply"));
+        apply->setEnabled(m_mirrorAxis && !m_toolPicks.empty());
+        connect(apply, &QPushButton::clicked, this, [this] { applyMirror(); });
+        g->addRow(QString(), apply);
+        break;
+    }
+    case Tool::Convert:
+        panel.setMessage(tr("Click a model edge, or a face to take all its edges. The copies are projected onto "
+                            "the sketch plane and held fixed."));
+        break;
+    case Tool::Doctor: {
+        const int closed = static_cast<int>(m_contours.regions.size());
+        panel.setMessage(m_issues.empty() ? tr("No problems found. %n closed region(s) ready for features.", nullptr, closed)
+                                          : tr("%n problem(s) found. Repair fixes gaps, tiny and duplicate entities "
+                                               "and repeated relations; the others are shown in red.",
+                                               nullptr, static_cast<int>(m_issues.size())));
+        PanelGroup* g = panel.addGroup(tr("Problems"));
+        auto* list = new QListWidget;
+        list->setMaximumHeight(180);
+        for (size_t i = 0; i < m_issues.size(); ++i) {
+            const Issue& issue = m_issues[i];
+            auto* item = new QListWidgetItem(QStringLiteral("%1. %2%3").arg(i + 1).arg(issueText(issue),
+                                                                               issue.repairable ? tr("  (can repair)") : QString()));
+            list->addItem(item);
+        }
+        if (m_issues.empty()) {
+            list->addItem(tr("(none)"));
+            list->setEnabled(false);
+        }
+        if (m_issueFocus >= 0) {
+            list->setCurrentRow(m_issueFocus);
+        }
+        connect(list, &QListWidget::currentRowChanged, this, [this](int row) {
+            m_issueFocus = row;
+            redraw();
+        });
+        g->addRow(QString(), list);
+        auto* repairOne = new QPushButton(tr("Repair Selected"));
+        repairOne->setEnabled(m_issueFocus >= 0 && m_issueFocus < static_cast<int>(m_issues.size()) &&
+                              m_issues[static_cast<size_t>(m_issueFocus)].repairable);
+        connect(repairOne, &QPushButton::clicked, this, [this] {
+            if (m_issueFocus < 0 || m_issueFocus >= static_cast<int>(m_issues.size())) {
+                return;
+            }
+            const Issue issue = m_issues[static_cast<size_t>(m_issueFocus)];
+            m_issueFocus = -1;
+            applyEdit([&issue](Sketch& k) { return repair(k, issue); }, tr("That problem cannot be repaired automatically."));
+        });
+        g->addRow(QString(), repairOne);
+        auto* repairEvery = new QPushButton(tr("Repair All"));
+        repairEvery->setEnabled(std::any_of(m_issues.begin(), m_issues.end(), [](const Issue& i) { return i.repairable; }));
+        connect(repairEvery, &QPushButton::clicked, this, [this] { repairAll(); });
+        g->addRow(QString(), repairEvery);
+        PanelGroup* summary = panel.addGroup(tr("Contours"));
+        summary->addText(tr("Closed regions: %1\nOpen ends: %2").arg(closed).arg(m_contours.openEnds.size()));
+        break;
+    }
     case Tool::Dimension:
         panel.setMessage(tr("Click an entity, then click where the dimension goes; type the value and press Enter. "
                             "Click two entities for a distance or an angle. Placing a dimension left or right of "
@@ -1992,6 +2539,65 @@ void SketchEditor::drawPreview(render::Drawing2d& d) const {
             drawDimension(d, *c, col);
         }
         break;
+    case Tool::Slot:
+        if (m_clicks.size() == 1) {
+            d.line(g2(m_clicks[0].at), g2(cur), col, 1.0f, Aspect_TOL_DOTDASH);
+            lengthLabel(length(cur - m_clicks[0].at));
+        } else if (m_clicks.size() == 2) {
+            const P2 a = m_clicks[0].at, b = m_clicks[1].at, u = normalized(b - a);
+            const double half = std::abs(cross(u, cur - a));
+            if (half > 1e-9) {
+                Sketch preview;
+                addSlot(preview, a, b, half);
+                for (const Curve& c : preview.curves()) {
+                    std::vector<gp_Pnt2d> pts;
+                    for (P2 p : tessellate(preview, c)) {
+                        pts.push_back(g2(p));
+                    }
+                    d.strokes.push_back({std::move(pts), col, c.construction ? 1.0f : 1.8f,
+                                         c.construction ? Aspect_TOL_DOTDASH : Aspect_TOL_SOLID});
+                }
+                lengthLabel(2.0 * half);
+            }
+        }
+        break;
+    case Tool::Polygon:
+        if (!m_clicks.empty() && length(cur - m_clicks[0].at) > 1e-9) {
+            const P2 c = m_clicks[0].at, v = cur - c;
+            const double r = length(v), a0 = std::atan2(v.y, v.x);
+            std::vector<gp_Pnt2d> pts;
+            for (int i = 0; i <= m_polygonSides; ++i) {
+                const double a = a0 + 2.0 * kPi * i / m_polygonSides;
+                pts.push_back(g2(c + P2{std::cos(a), std::sin(a)} * r));
+            }
+            d.strokes.push_back({std::move(pts), col, 1.8f});
+            d.strokes.push_back({arcPoints(c, r, 0.0, 2.0 * kPi), col, 1.0f, Aspect_TOL_DASH});
+            lengthLabel(r);
+        }
+        break;
+    case Tool::Offset:
+    case Tool::Mirror: {
+        // What Apply would add, drawn from a scratch copy.
+        if (m_toolPicks.empty() || (m_tool == Tool::Mirror && !m_mirrorAxis)) {
+            break;
+        }
+        Sketch scratch = s;
+        const std::vector<Id> picks(m_toolPicks.begin(), m_toolPicks.end());
+        const std::vector<Id> added =
+            m_tool == Tool::Offset ? offset(scratch, picks, signedOffset(), false) : mirror(scratch, picks, m_mirrorAxis);
+        for (Id id : added) {
+            if (const Curve* c = scratch.curve(id)) {
+                std::vector<gp_Pnt2d> pts;
+                for (P2 p : tessellate(scratch, *c)) {
+                    pts.push_back(g2(p));
+                }
+                d.strokes.push_back({std::move(pts), col, 1.6f, Aspect_TOL_DASH});
+            } else if (const Point* p = scratch.point(id)) {
+                d.markers.push_back({gp_Pnt2d(p->x, p->y), col, Aspect_TOM_BALL, 2.0f});
+            }
+        }
+        break;
+    }
     default: break;
     }
 }
@@ -2005,6 +2611,28 @@ void SketchEditor::redraw() {
     const Palette pal = palette();
     const Sketch& s = sketch();
     render::Drawing2d d;
+
+    if (m_shadeRegions) {
+        for (const Region& r : m_contours.regions) {
+            render::Drawing2d::Fill fill;
+            fill.color = pal.region;
+            fill.transparency = 0.72f;
+            for (const Loop* loop : [&r] {
+                     std::vector<const Loop*> all{&r.outer};
+                     for (const Loop& h : r.holes) {
+                         all.push_back(&h);
+                     }
+                     return all;
+                 }()) {
+                std::vector<gp_Pnt2d> pts;
+                for (P2 p : loop->polygon) {
+                    pts.push_back(g2(p));
+                }
+                fill.loops.push_back(std::move(pts));
+            }
+            d.fills.push_back(std::move(fill));
+        }
+    }
 
     std::set<Id> bad;
     auto markBad = [&s, &bad](Id cid) {
@@ -2023,9 +2651,21 @@ void SketchEditor::redraw() {
     for (const Hit& h : m_dimPicks) {
         picked.insert(h.id);
     }
+    if (m_tool == Tool::Doctor) {
+        for (int i = 0; i < static_cast<int>(m_issues.size()); ++i) {
+            for (Id id : m_issues[static_cast<size_t>(i)].ids) {
+                if (i == m_issueFocus || m_issueFocus < 0) {
+                    bad.insert(id);
+                }
+            }
+        }
+    }
     auto colorFor = [&](Id id, bool troubled, bool defined) {
-        if (m_selected.count(id) || picked.count(id)) {
+        if (m_selected.count(id) || picked.count(id) || m_toolPicks.count(id)) {
             return pal.selected;
+        }
+        if (id == m_mirrorAxis) {
+            return pal.hover;
         }
         if (m_hover.kind != Hit::None && m_hover.id == id) {
             return pal.hover;
@@ -2069,7 +2709,21 @@ void SketchEditor::redraw() {
             continue;
         }
         const Quantity_Color color = colorFor(p.id, bad.count(p.id) > 0, m_solve.isDefined(p.id));
+        if (standalone && p.construction) { // a fillet's virtual sharp
+            d.markers.push_back({gp_Pnt2d(p.x, p.y), color, Aspect_TOM_PLUS, 1.6f});
+            continue;
+        }
         d.markers.push_back({gp_Pnt2d(p.x, p.y), color, Aspect_TOM_BALL, standalone ? 2.4f : 1.6f});
+    }
+    if (m_tool == Tool::Doctor) {
+        for (int i = 0; i < static_cast<int>(m_issues.size()); ++i) {
+            const Issue& issue = m_issues[static_cast<size_t>(i)];
+            const bool focus = i == m_issueFocus;
+            d.markers.push_back({g2(issue.at), pal.problem, Aspect_TOM_RING3, focus ? 4.0f : 3.0f});
+            if (focus || m_issueFocus < 0) {
+                d.labels.push_back({g2(issue.at + P2{0.0, 18.0 * m_px}), ext(QString::number(i + 1)), rgb(255, 255, 255), pal.problem, 11.0f});
+            }
+        }
     }
 
     for (const Constraint& c : s.constraints()) {

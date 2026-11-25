@@ -21,6 +21,7 @@ set_target_properties(bl_core PROPERTIES AUTOMOC OFF)
 add_library(bl_sketch STATIC
     sketch/Sketch.cpp        sketch/Sketch.h
     sketch/Solver.cpp        sketch/Solver.h
+    sketch/Operations.cpp sketch/Operations.h
     sketch/Geometry.cpp      sketch/Geometry.h)
 add_library(bl::sketch ALIAS bl_sketch)
 target_link_libraries(bl_sketch PUBLIC bl::core Eigen3::Eigen)

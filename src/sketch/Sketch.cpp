@@ -171,6 +171,12 @@ Id Sketch::addDimension(ConstraintType type, std::vector<Id> refs, std::optional
     return addConstraint(std::move(c));
 }
 
+void Sketch::renumber(Id id) {
+    if (Curve* c = curve(id)) {
+        c->number = nextNumber(curveKind(c->type));
+    }
+}
+
 bool Sketch::remove(Id id) {
     if (id == m_origin) {
         return false;

@@ -10,15 +10,19 @@ dialog and status-bar units switcher.
 
 Sketching works on the Front, Top and Right planes or a flat face: lines (with automatic
 horizontal, vertical, coincident, midpoint and tangent relations from snapping), centerlines,
-corner and centre rectangles, circles, centre-point and tangent arcs, points, Smart Dimension,
-Add Relations, construction geometry, dragging within the remaining freedom, and blue / black /
-red status colours from BrokenLiquid's own 2D constraint solver
-([ADR 0007](docs/adr/0007-sketch-solver-own.md)). Sketches are saved in the Feature Tree and can be
-edited, renamed, hidden and deleted with undo. Trim, extend, offset, mirror, convert entities,
-sketch fillets and Sketch Doctor come next. Other modelling commands are visible but marked
-"Coming in Phase N".
+corner and centre rectangles, straight slots, circles, centre-point and tangent arcs, polygons,
+points, Smart Dimension, Add Relations, construction geometry, dragging within the remaining
+freedom, and blue / black / red status colours from BrokenLiquid's own 2D constraint solver
+([ADR 0007](docs/adr/0007-sketch-solver-own.md)). Editing tools keep the sketch constrained:
+sketch fillets keep the corner as a virtual sharp, trim and extend, offset (dimensioned, whole
+contours), mirror (copies stay symmetric) and convert entities (model edges or a face's edges).
+Closed regions are shaded, and the Sketch Doctor finds gaps, open ends, overlaps and duplicates and
+repairs what it can. Sketches are saved in the Feature Tree and can be edited, renamed, hidden and
+deleted with undo. Other modelling commands are visible but marked "Coming in Phase N".
 
 ![Sketch: an L bracket profile drawn and fully defined](docs/images/sketch.png)
+
+![Sketch tools: fillet, inward offset, slot and polygon, closed regions shaded, Sketch Doctor](docs/images/sketch-tools.png)
 
 ![Splash screen](docs/images/splash.png)
 

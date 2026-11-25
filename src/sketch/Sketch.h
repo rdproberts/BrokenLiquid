@@ -78,7 +78,9 @@ struct Constraint {
     double value = 0.0;    // dimensions
     bool driving = true;   // false: a driven (reference) dimension that only reports a value
     int variant = 0;       // Tangent of two circles/arcs: 0 = outside, 1 = inside;
-                           // Angle: 0 = between the line directions, 1 = its supplement
+                           // Angle: 0 = between the line directions, 1 = its supplement;
+                           // Symmetric: 1 = only "p-q at right angles to the axis" (a mirrored
+                           // arc's end, which its circle already holds at the right distance)
     std::vector<double> anchor;         // Fix: the held coordinates (x, y per point; then radius)
     double labelX = 0.0, labelY = 0.0;  // dimension text position (sketch coordinates)
 
@@ -125,6 +127,9 @@ public:
     double arcRadius(const Curve& arc) const;
     // Current value of a dimension measured from the geometry (what a driven dimension shows).
     std::optional<double> measure(const Constraint& c) const;
+    // Gives a curve whose type changed (a trimmed circle became an arc) the next number of its new
+    // kind, so its name stays unique.
+    void renumber(Id curve);
     // Stable display names numbered per kind in creation order: "Line3", "Point5", "D2"
     // (dimensions), "Coincident4". Deleting an entity does not renumber the others.
     std::string name(Id id) const;

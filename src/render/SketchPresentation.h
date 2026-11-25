@@ -8,6 +8,7 @@
 #include <AIS_InteractiveObject.hxx>
 #include <Aspect_TypeOfLine.hxx>
 #include <Aspect_TypeOfMarker.hxx>
+#include <Graphic3d_ArrayOfTriangles.hxx>
 #include <Quantity_Color.hxx>
 #include <TCollection_ExtendedString.hxx>
 #include <gp_Ax3.hxx>
@@ -38,6 +39,12 @@ struct Drawing2d {
         std::optional<Quantity_Color> box; // background box
         float height = 14.0f;              // pixels
     };
+    struct Fill {
+        std::vector<std::vector<gp_Pnt2d>> loops; // outer outline first, then holes; closed polygons
+        Quantity_Color color;
+        float transparency = 0.75f;
+    };
+    std::vector<Fill> fills; // drawn under everything else
     std::vector<Stroke> strokes;
     std::vector<Marker> markers;
     std::vector<Label> labels;
@@ -68,6 +75,14 @@ protected:
     void ComputeSelection(const Handle(SelectMgr_Selection)&, const int) override {}
 
 private:
+    // Triangles of a fill, kept while its outline is unchanged (meshing on every redraw is wasteful).
+    struct FillMesh {
+        std::vector<std::vector<gp_Pnt2d>> loops;
+        Handle(Graphic3d_ArrayOfTriangles) triangles;
+    };
+    Handle(Graphic3d_ArrayOfTriangles) meshFill(const Drawing2d::Fill& fill);
+    std::vector<FillMesh> m_fillCache;
+
     gp_Pnt to3d(const gp_Pnt2d& p) const;
 
     gp_Ax3 m_plane;

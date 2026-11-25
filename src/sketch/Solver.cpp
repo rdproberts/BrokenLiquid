@@ -359,7 +359,7 @@ private:
             }
             const int p = P(r[0]), q = P(r[1]), a = P(line(r[2])->p1), b = P(line(r[2])->p2);
             const auto slots = join({pts(p, q), pts(a, b)});
-            add(id, slots, [p, q, a, b](const Vec& v) { // the midpoint of p and q lies on the axis
+            if (c.variant != 1) add(id, slots, [p, q, a, b](const Vec& v) { // the midpoint of p and q lies on the axis
                 const double mx = 0.5 * (v[p] + v[q]), my = 0.5 * (v[p + 1] + v[q + 1]);
                 const double dx = v[b] - v[a], dy = v[b + 1] - v[a + 1];
                 const double n = std::max(1e-300, std::hypot(dx, dy));

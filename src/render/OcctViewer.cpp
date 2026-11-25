@@ -591,6 +591,26 @@ QPointF OcctViewer::toWidget(const gp_Pnt& p) const {
     return QPointF(xp / ratio, yp / ratio);
 }
 
+std::optional<OcctViewer::Pick> OcctViewer::detectAt(const QPointF& pos) {
+    if (!m_pickable) {
+        return std::nullopt;
+    }
+    const NCollection_Vec2<int> px = toPixels(pos);
+    m_context->MoveTo(px.x(), px.y(), m_view, false);
+    updateView();
+    if (!m_context->HasDetected()) {
+        return std::nullopt;
+    }
+    Handle(StdSelect_BRepOwner) owner = Handle(StdSelect_BRepOwner)::DownCast(m_context->DetectedOwner());
+    if (owner.IsNull()) {
+        return std::nullopt;
+    }
+    Pick pick;
+    pick.object = Handle(AIS_InteractiveObject)::DownCast(owner->Selectable());
+    pick.shape = owner->Shape();
+    return pick;
+}
+
 void OcctViewer::setModelPickable(bool pickable) {
     if (pickable == m_pickable) {
         return;

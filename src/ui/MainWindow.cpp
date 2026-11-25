@@ -23,6 +23,8 @@
 #include "ui/ViewHud.h"
 
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <BRep_Builder.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -93,7 +95,11 @@ const SketchToolDef kSketchTools[] = {
     {"sketch.centerline", SketchEditor::Tool::Centerline}, {"sketch.rectangle", SketchEditor::Tool::Rectangle},
     {"sketch.centerRectangle", SketchEditor::Tool::CenterRectangle}, {"sketch.circle", SketchEditor::Tool::Circle},
     {"sketch.arc", SketchEditor::Tool::Arc},               {"sketch.tangentArc", SketchEditor::Tool::TangentArc},
-    {"sketch.point", SketchEditor::Tool::Point},
+    {"sketch.point", SketchEditor::Tool::Point},           {"sketch.slot", SketchEditor::Tool::Slot},
+    {"sketch.polygon", SketchEditor::Tool::Polygon},       {"sketch.fillet", SketchEditor::Tool::Fillet},
+    {"sketch.trim", SketchEditor::Tool::Trim},             {"sketch.extend", SketchEditor::Tool::Extend},
+    {"sketch.offset", SketchEditor::Tool::Offset},         {"sketch.mirror", SketchEditor::Tool::Mirror},
+    {"sketch.convert", SketchEditor::Tool::Convert},       {"sketch.doctor", SketchEditor::Tool::Doctor},
 };
 
 Units defaultUnits() {
@@ -469,6 +475,22 @@ void MainWindow::registerCommands() {
         {"sketch.tangentArc", tr("Tangent Arc"), "tangent-arc", QKeySequence(),
          tr("Arc tangent to the end of a line or arc")},
         {"sketch.point", tr("Point"), "sketch-point", QKeySequence(Qt::Key_P), tr("Sketch point (P)")},
+        {"sketch.slot", tr("Straight Slot"), "slot", QKeySequence(),
+         tr("Slot from the centres of its two ends and its width")},
+        {"sketch.polygon", tr("Polygon"), "polygon", QKeySequence(), tr("Regular polygon from its centre and a corner")},
+        {"sketch.fillet", tr("Sketch Fillet"), "sketch-fillet", QKeySequence(),
+         tr("Round the corner between two lines; the corner's dimensions are kept")},
+        {"sketch.trim", tr("Trim Entities"), "trim", QKeySequence(Qt::Key_T),
+         tr("Remove the piece of a curve up to where other curves cross it (T)")},
+        {"sketch.extend", tr("Extend Entities"), "extend", QKeySequence(), tr("Extend a line or arc to the next curve")},
+        {"sketch.offset", tr("Offset Entities"), "offset", QKeySequence(Qt::Key_O),
+         tr("Copy curves or a whole contour at a distance, dimensioned (O)")},
+        {"sketch.mirror", tr("Mirror Entities"), "sketch-mirror", QKeySequence(),
+         tr("Mirror entities about a line; the copies stay symmetric")},
+        {"sketch.convert", tr("Convert Entities"), "convert", QKeySequence(),
+         tr("Copy model edges, or all edges of a face, into the sketch")},
+        {"sketch.doctor", tr("Sketch Doctor"), "issues", QKeySequence(),
+         tr("Find gaps, open ends, overlaps and duplicates that stop a sketch making a clean profile")},
     };
     for (const auto& t : tools) {
         SketchEditor::Tool tool = SketchEditor::Tool::Select;
@@ -497,19 +519,6 @@ void MainWindow::registerCommands() {
                     editor->toggleConstruction();
                 }
             });
-    const struct {
-        const char* id;
-        QString label;
-        const char* icon;
-    } later[] = {
-        {"sketch.slot", tr("Straight Slot"), "slot"},         {"sketch.polygon", tr("Polygon"), "polygon"},
-        {"sketch.fillet", tr("Sketch Fillet"), "sketch-fillet"}, {"sketch.offset", tr("Offset Entities"), "offset"},
-        {"sketch.convert", tr("Convert Entities"), "convert"}, {"sketch.trim", tr("Trim Entities"), "trim"},
-        {"sketch.extend", tr("Extend Entities"), "extend"},   {"sketch.mirror", tr("Mirror Entities"), "sketch-mirror"},
-    };
-    for (const auto& s : later) {
-        planned(s.id, s.label, "Phase 2 (sketch tools, next step)", s.icon);
-    }
 
     // Evaluate
     command("evaluate.measure", tr("Measure"), "measure", QKeySequence(),
@@ -666,9 +675,9 @@ void MainWindow::buildCommandBar() {
     m_commandBar->addGroup(sketch, {"sketch.slot", "sketch.circle"});
     m_commandBar->addFlyout(sketch, tr("Arc"), {"sketch.arc", "sketch.tangentArc"});
     m_commandBar->addGroup(sketch, {"sketch.polygon", "sketch.point"});
-    m_commandBar->addGroup(sketch, {"sketch.fillet", "sketch.offset", "sketch.convert", "sketch.trim",
-                                    "sketch.mirror"});
-    m_commandBar->addGroup(sketch, {"sketch.relation", "sketch.construction"});
+    m_commandBar->addGroup(sketch, {"sketch.fillet", "sketch.offset", "sketch.convert", "sketch.mirror"});
+    m_commandBar->addFlyout(sketch, tr("Trim"), {"sketch.trim", "sketch.extend"});
+    m_commandBar->addGroup(sketch, {"sketch.relation", "sketch.construction", "sketch.doctor"});
 
     const int evaluate = m_commandBar->addTab(tr("Evaluate"));
     m_commandBar->addGroup(evaluate, {"evaluate.measure", "evaluate.massProps", "view.section"});
@@ -1630,6 +1639,35 @@ void MainWindow::runDemo(const QString& demo) {
         }
     } else if (demo == QLatin1String("options")) {
         QTimer::singleShot(0, this, [this] { showOptions(true); });
+    } else if (demo == QLatin1String("sketch-convert")) {
+        // Sketch on the largest flat face of the first body and convert that face's edges.
+        const doc::Document* d = activeDocument();
+        if (!d || d->model().bodies.empty()) {
+            return;
+        }
+        TopoDS_Shape best;
+        double bestArea = 0.0;
+        for (TopExp_Explorer it(d->model().bodies.front().shape, TopAbs_FACE); it.More(); it.Next()) {
+            if (!planarFace(it.Current())) {
+                continue;
+            }
+            GProp_GProps props;
+            BRepGProp::SurfaceProperties(it.Current(), props);
+            if (props.Mass() > bestArea) {
+                bestArea = props.Mass();
+                best = it.Current();
+            }
+        }
+        if (best.IsNull()) {
+            return;
+        }
+        startSketchOn(facePlane(*planarFace(best)), tr("Face"));
+        if (SketchEditor* e = sketchEditor()) {
+            e->setTool(SketchEditor::Tool::Convert);
+            e->convertShape(best);
+            spdlog::info("demo sketch-convert: {} curves, {}", e->sketch().curves().size(),
+                         sketch::statusName(e->solveResult().status));
+        }
     } else if (demo.startsWith(QLatin1String("sketch"))) {
         // Draws an L bracket profile with the tools as a user would (clicks in sketch coordinates),
         // dimensions part of it and selects the bottom line (relations in the Property Panel).
@@ -1645,6 +1683,40 @@ void MainWindow::runDemo(const QString& demo) {
                 e->clickAt(u, v);
             }
         };
+        if (demo == QLatin1String("sketch-edit")) {
+            // Trim, extend, mirror and the Sketch Doctor on a few loose lines.
+            auto curveCount = [e] { return e->sketch().curves().size(); };
+            auto line = [&](std::pair<double, double> a, std::pair<double, double> b, Tool tool = Tool::Line) {
+                e->setTool(tool);
+                clicks({a, b});
+            };
+            line({0, 0}, {40, 0});
+            line({20, -10}, {20, 10});
+            line({30, -10}, {30, 10});
+            e->setTool(Tool::Trim);
+            clicks({{25, 0}}); // the piece between the two verticals
+            spdlog::info("demo sketch-edit: trim -> {} curves", curveCount());
+            e->setTool(Tool::Trim);
+            clicks({{20, 5}}); // the upper half of the first vertical
+            e->setTool(Tool::Extend);
+            clicks({{18, 0}}); // past the stub of the first vertical to the second one
+            spdlog::info("demo sketch-edit: extend -> {} curves", curveCount());
+            line({50, -10}, {50, 10}, Tool::Centerline);
+            e->setTool(Tool::Circle);
+            clicks({{42, 5}, {44, 5}});
+            e->setTool(Tool::Mirror);
+            clicks({{44, 5}, {50, -5}});
+            const bool mirrored = e->applyMirror();
+            spdlog::info("demo sketch-edit: mirror {} -> {} curves", mirrored, curveCount());
+            line({0, 20}, {10, 20});
+            line({0, 20}, {10, 20}); // a duplicate for the Sketch Doctor
+            e->setTool(Tool::Doctor);
+            const size_t found = e->issues().size();
+            e->repairAll();
+            spdlog::info("demo sketch-edit: doctor {} issue(s), {} after Repair All; {} curves, {}", found,
+                         e->issues().size(), curveCount(), sketch::statusName(e->solveResult().status));
+            return;
+        }
         // Lines to the fillet, a tangent arc, then lines back to the origin (the line leaving
         // the arc picks up tangency, the closing one its vertical relation).
         e->setTool(Tool::Line);
@@ -1672,6 +1744,30 @@ void MainWindow::runDemo(const QString& demo) {
                 clicks(dim);
                 e->escapePressed(); // close the value box, keeping the value
             }
+        }
+        if (demo == QLatin1String("sketch-tools")) {
+            // Round the far corner, offset the outline inwards, then a slot in the leg and a
+            // hexagon in the flange, and end in the Sketch Doctor.
+            e->setFilletRadius(3.0);
+            e->setTool(Tool::Fillet);
+            clicks({{60, 0}});
+            e->setOffsetDistance(1.5, true);
+            e->setTool(Tool::Offset);
+            clicks({{30, 0}});
+            e->applyOffset();
+            e->setTool(Tool::Slot);
+            clicks({{5, 22}, {5, 32}, {7, 27}});
+            e->setPolygonSides(6);
+            e->setTool(Tool::Polygon);
+            clicks({{25, 5}, {28, 5}});
+            e->showRelations(false); // a cleaner picture
+            e->setTool(Tool::Doctor);
+            const sketch::Sketch& s = e->sketch();
+            spdlog::info("demo sketch-tools: {} curves, {} constraints, {}, DOF {}, {} regions, {} issues",
+                         s.curves().size(), s.constraints().size(),
+                         sketch::statusName(e->solveResult().status), e->solveResult().dof,
+                         e->contours().regions.size(), e->issues().size());
+            return;
         }
         e->setTool(Tool::Select);
         if (demo == QLatin1String("sketch-exit")) {

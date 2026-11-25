@@ -78,6 +78,7 @@ public:
     QPointF toWidget(const gp_Pnt& p) const;
     // false: model objects cannot be picked or hover-highlighted at all (sketch mode).
     void setModelPickable(bool pickable);
+    bool isModelPickable() const { return m_pickable; }
 
     // --- Overlays (sketch graphics): displayed above the model, never selectable -----------------
     void showOverlay(const Handle(AIS_InteractiveObject)& object, bool alwaysOnTop);
@@ -94,6 +95,9 @@ public:
         TopoDS_Shape shape; // picked sub-shape (face/edge/vertex) or the whole object shape
     };
     std::vector<Pick> selection() const;
+    // The pickable model sub-shape (per the selection filter) under a widget position, without
+    // selecting it (for commands that take model picks while they own the mouse).
+    std::optional<Pick> detectAt(const QPointF& pos);
     void clearSelection();         // emits selectionChanged
     void deselect(int index);      // drops one pick (index into selection()); emits selectionChanged
     // Adds a sub-shape (face/edge/vertex) of a displayed object to the selection as if it had been

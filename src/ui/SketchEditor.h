@@ -4,6 +4,7 @@
 #include "render/OcctViewer.h"
 #include "render/SketchPresentation.h"
 #include "sketch/Geometry.h"
+#include "sketch/Operations.h"
 #include "sketch/Solver.h"
 #include "ui/InteractiveCommand.h"
 
@@ -18,6 +19,8 @@
 #include <vector>
 
 class QLineEdit;
+class TopoDS_Edge;
+class TopoDS_Shape;
 
 namespace bl::ui {
 
@@ -59,7 +62,27 @@ private:
 class SketchEditor : public InteractiveCommand, public render::ViewerInput {
     Q_OBJECT
 public:
-    enum class Tool { Select, Line, Centerline, Rectangle, CenterRectangle, Circle, Arc, TangentArc, Point, Dimension };
+    enum class Tool {
+        Select,
+        Line,
+        Centerline,
+        Rectangle,
+        CenterRectangle,
+        Slot,
+        Circle,
+        Arc,
+        TangentArc,
+        Polygon,
+        Point,
+        Dimension,
+        Fillet,
+        Trim,
+        Extend,
+        Offset,
+        Mirror,
+        Convert,
+        Doctor,
+    };
 
     SketchEditor(CommandHost& host, doc::SketchFeature feature, bool isNew);
     ~SketchEditor() override;
@@ -89,6 +112,21 @@ public:
     const sketch::SolveResult& solveResult() const { return m_solve; }
     void toggleConstruction(); // selected curves
     void showRelations(bool on);
+    void shadeRegions(bool on);
+
+    // Tool options (also in the Property Panel while the tool is active).
+    void setPolygonSides(int sides);
+    void setFilletRadius(double mm);
+    void setOffsetDistance(double mm, bool reverse);
+    // Offset / Mirror: apply to the picked entities (Enter does the same).
+    bool applyOffset();
+    bool applyMirror();
+    // Convert Entities: copies a model edge, or every edge of a face, into the sketch (held fixed).
+    void convertShape(const TopoDS_Shape& shape);
+    // Sketch Doctor: repairs every problem it can.
+    void repairAll();
+    const sketch::Contours& contours() const { return m_contours; }
+    const std::vector<sketch::Issue>& issues() const { return m_issues; }
 
     // Scripted input (smoke demo, tests): the same as clicking at sketch coordinates with the
     // current tool, or pressing Enter in the value box.
@@ -145,6 +183,15 @@ private:
     void cancelGesture();
 
     void toolClick(const Snap& snap);
+    void pickClick(P2 at);          // Fillet, Trim, Extend, Offset, Mirror
+    bool isPickTool() const;
+    // Runs an editing operation as one undo step; restores the sketch if it reports failure.
+    bool applyEdit(const std::function<bool(sketch::Sketch&)>& op, const QString& failure);
+    std::vector<Id> chainOf(Id curve) const;
+    int convertEdge(const TopoDS_Edge& edge);
+    void refreshAnalysis(); // regions, and the Sketch Doctor's issues while it is open
+    double signedOffset() const { return m_offsetReverse ? -m_offsetDistance : m_offsetDistance; }
+    QString issueText(const sketch::Issue& issue) const;
     void dimensionClick(P2 at);
     std::optional<sketch::Constraint> pendingDimension(P2 label) const;
     void placeDimension(sketch::Constraint c);
@@ -208,6 +255,22 @@ private:
 
     QPointer<QLineEdit> m_valueEditor;
     Id m_valueDimension = 0;
+
+    // Tool options and picks
+    int m_polygonSides = 6;
+    double m_filletRadius = 2.0;
+    double m_offsetDistance = 2.0;
+    bool m_offsetReverse = false;
+    bool m_offsetChain = true;
+    bool m_offsetDimensions = true;
+    std::set<Id> m_toolPicks; // Offset / Mirror entities
+    Id m_mirrorAxis = 0;
+    bool m_pickAxis = false;
+    bool m_shadeRegions = true;
+    bool m_modelWasPickable = false;
+    sketch::Contours m_contours;
+    std::vector<sketch::Issue> m_issues;
+    int m_issueFocus = -1;
 };
 
 } // namespace bl::ui
