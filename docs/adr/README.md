@@ -12,3 +12,4 @@ Status. New ADRs copy [`0000-template.md`](0000-template.md) and take the next n
 | [0005](0005-assembly-solver.md) | Assemblies: own Levenberg–Marquardt mate solver on Eigen | Accepted (spike passed) |
 | [0006](0006-sketch-solver-planegcs.md) | Sketch solver: PlaneGCS | Superseded by 0007 |
 | [0007](0007-sketch-solver-own.md) | Sketch solver: own minimum-norm Gauss–Newton on Eigen | Accepted (spike passed) |
+| [0008](0008-native-file-format.md) | Native files: ZIP of JSON + BRep via Qt private zip | Accepted |

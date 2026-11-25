@@ -22,7 +22,7 @@ public:
     DocumentType type() const { return m_type; }
     QString title() const { return m_title; }
     void setTitle(const QString& title);
-    // File the document came from (an imported STEP for now; native files arrive in Phase 3).
+    // File the document was opened from or last saved to (a .blpart, or the STEP it was imported from).
     QString filePath() const { return m_filePath; }
     void setFilePath(const QString& path) { m_filePath = path; }
 
@@ -40,10 +40,12 @@ public:
     void redo();
 
     bool isModified() const { return !m_history.isClean(); }
+    // Rebuilds every feature from scratch (Edit > Rebuild); no undo step.
+    void regenerate();
     void markSaved();
 
     // A fresh, unchanged document (no bodies, no history): opening a file may reuse it.
-    bool isPristine() const { return m_model.bodies.empty() && m_model.sketches.empty() && !canUndo() && !canRedo(); }
+    bool isPristine() const { return m_model.features.empty() && m_model.sketches.empty() && !canUndo() && !canRedo(); }
 
 signals:
     void modelChanged();

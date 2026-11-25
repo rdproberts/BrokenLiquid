@@ -102,11 +102,24 @@ private:
     // Sketches
     SketchEditor* sketchEditor() const;
     void startSketch();
-    void startSketchOn(const gp_Ax3& plane, const QString& planeName);
+    void startSketchOn(const gp_Ax3& plane, const QString& planeName,
+                       const std::optional<kernel::FaceRef>& face = std::nullopt);
     void editSketch(const QUuid& id);
     void renameSketch(const QUuid& id, const QString& name);
     void setSketchVisible(const QUuid& id, bool visible);
     void deleteSketch(const QUuid& id);
+    // Part features (Phase 3)
+    void startExtrude(bool cut);
+    void editFeature(const QUuid& id);
+    void renameFeature(const QUuid& id, const QString& name);
+    void suppressFeature(const QUuid& id, bool suppressed);
+    void deleteFeature(const QUuid& id);
+    void setRollback(int index);
+    // Native files
+    bool saveDocument(DocumentView* view, bool saveAs);
+    bool confirmClose(DocumentView* view); // asks to save changes; false: cancelled
+    void openPart(const QString& path);
+    void runPartDemo(bool stopAtCut = false); // stopAtCut: leave the Cut-Extrude panel and preview open
     void updateSketchActions();
 
     // Edits through the active document (undoable)
@@ -147,6 +160,7 @@ private:
     std::vector<QMetaObject::Connection> m_activeConnections;
     std::unique_ptr<InteractiveCommand> m_command;
     QString m_stateText;
+    QString m_smokeOut; // smoke test screenshot path (demos save next to it)
     int m_sketchTab = -1;
     int m_partCounter = 0;
     int m_importsBusy = 0;

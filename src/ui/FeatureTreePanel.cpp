@@ -19,6 +19,16 @@ namespace {
 constexpr int kIdRole = Qt::UserRole + 1;
 constexpr int kBodyRole = Qt::UserRole + 2;
 constexpr int kSketchRole = Qt::UserRole + 3;
+constexpr int kFeatureRole = Qt::UserRole + 4;
+
+QString iconFor(const doc::Feature& f) {
+    switch (f.type) {
+    case doc::FeatureType::Import: return QStringLiteral("tree-body");
+    case doc::FeatureType::Sketch: return QStringLiteral("sketch");
+    case doc::FeatureType::Extrude: return f.extrude.cut ? QStringLiteral("extrude-cut") : QStringLiteral("extrude");
+    }
+    return QStringLiteral("tree-folder");
+}
 } // namespace
 
 FeatureTreePanel::FeatureTreePanel(QWidget* parent)
@@ -77,6 +87,10 @@ FeatureTreePanel::FeatureTreePanel(QWidget* parent)
             emit sketchEditRequested(id);
             return;
         }
+        if (const QUuid id = featureId(item); !id.isNull()) {
+            emit featureEditRequested(id);
+            return;
+        }
         emit itemActivated(item->data(0, kIdRole).toString());
     });
     connect(m_tree, &QTreeWidget::itemSelectionChanged, this, [this] {
@@ -98,6 +112,16 @@ FeatureTreePanel::FeatureTreePanel(QWidget* parent)
             }
             if (sketch && !name.isEmpty() && name != sketch->name) {
                 emit sketchRenameRequested(sid, name);
+            } else {
+                rebuild();
+            }
+            return;
+        }
+        if (const QUuid fid = featureId(item); !fid.isNull()) {
+            const doc::Feature* f = m_document->model().feature(fid);
+            const QString name = item->text(0).trimmed();
+            if (f && !name.isEmpty() && name != f->name) {
+                emit featureRenameRequested(fid, name);
             } else {
                 rebuild();
             }
@@ -135,6 +159,22 @@ QUuid FeatureTreePanel::sketchId(const QTreeWidgetItem* item) const {
     return item ? item->data(0, kSketchRole).toUuid() : QUuid();
 }
 
+QUuid FeatureTreePanel::featureId(const QTreeWidgetItem* item) const {
+    return item ? item->data(0, kFeatureRole).toUuid() : QUuid();
+}
+
+QUuid FeatureTreePanel::selectedFeature() const {
+    for (const QTreeWidgetItem* item : m_tree->selectedItems()) {
+        if (const QUuid id = featureId(item); !id.isNull()) {
+            return id;
+        }
+        if (const QUuid id = sketchId(item); !id.isNull()) {
+            return id;
+        }
+    }
+    return {};
+}
+
 QUuid FeatureTreePanel::selectedSketch() const {
     for (const QTreeWidgetItem* item : m_tree->selectedItems()) {
         if (const QUuid id = sketchId(item); !id.isNull()) {
@@ -163,9 +203,10 @@ void FeatureTreePanel::rebuild() {
     m_updating = true;
     const QList<QUuid> selected = selectedBodies();
     const QUuid selectedSketchId = selectedSketch();
+    const QUuid selectedFeatureId = selectedFeature();
     qDeleteAll(m_bodies->takeChildren());
-    qDeleteAll(m_sketchItems);
-    m_sketchItems.clear();
+    qDeleteAll(m_historyItems);
+    m_historyItems.clear();
     m_tree->setVisible(m_document != nullptr);
     m_filter->setVisible(m_document != nullptr);
     m_empty->setVisible(m_document == nullptr);
@@ -192,37 +233,151 @@ void FeatureTreePanel::rebuild() {
         }
     }
     if (m_document) {
-        // Sketches are history features: after the origin, above the rollback bar.
-        const QColor hidden = palette().color(QPalette::Disabled, QPalette::Text);
-        for (const doc::SketchFeature& sketch : m_document->model().sketches) {
-            auto* item = new QTreeWidgetItem();
-            m_root->insertChild(m_root->indexOfChild(m_rollback), item);
-            QString prefix;
-            QString state = tr("Fully defined");
-            if (sketch.status == ::bl::sketch::SketchStatus::UnderDefined) {
-                prefix = QStringLiteral("(-) ");
-                state = tr("Under defined");
-            } else if (sketch.status == ::bl::sketch::SketchStatus::OverDefined) {
-                prefix = QStringLiteral("(+) ");
-                state = tr("Over defined");
+        // The history after the origin: features in order, each feature's sketch under it, and
+        // the rollback bar between what is built and what is rolled back.
+        const doc::PartModel& model = m_document->model();
+        m_root->removeChild(m_rollback);
+        m_root->addChild(m_rollback);
+        const int rollback = model.rollback;
+        for (size_t i = 0; i < model.features.size(); ++i) {
+            const doc::Feature& f = model.features[i];
+            if (f.type == doc::FeatureType::Sketch && model.consumerOf(f.id)) {
+                continue; // shown under its feature
             }
-            item->setText(0, prefix + sketch.name);
-            item->setIcon(0, icon(QStringLiteral("sketch"), sketch.name));
-            item->setData(0, kIdRole, QStringLiteral("sketch"));
-            item->setData(0, kSketchRole, sketch.id);
-            item->setFlags(item->flags() | Qt::ItemIsEditable);
-            item->setToolTip(0, tr("%1 on %2\n%3. Double-click to edit.").arg(sketch.name, sketch.planeName, state));
-            if (!sketch.visible) {
-                item->setForeground(0, hidden);
+            QTreeWidgetItem* item = historyItem(f, nullptr);
+            if (rollback >= 0 && static_cast<int>(i) >= rollback) {
+                m_root->addChild(item); // below the bar
+            } else {
+                m_root->insertChild(m_root->indexOfChild(m_rollback), item);
             }
-            item->setSelected(sketch.id == selectedSketchId);
-            m_sketchItems << item;
+            m_historyItems << item;
+            if (f.type == doc::FeatureType::Extrude) {
+                if (const doc::Feature* sketch = model.feature(f.extrude.sketch)) {
+                    historyItem(*sketch, item);
+                }
+            }
+        }
+        // Put the selection back.
+        std::function<void(QTreeWidgetItem*)> reselect = [&](QTreeWidgetItem* item) {
+            const QUuid id = !sketchId(item).isNull() ? sketchId(item) : featureId(item);
+            if (!id.isNull() && (id == selectedSketchId || id == selectedFeatureId)) {
+                item->setSelected(true);
+            }
+            for (int c = 0; c < item->childCount(); ++c) {
+                reselect(item->child(c));
+            }
+        };
+        for (QTreeWidgetItem* item : m_historyItems) {
+            reselect(item);
         }
     }
     m_bodies->setText(0, tr("Solid Bodies(%1)").arg(count));
     m_bodies->setHidden(count == 0);
     applyFilter(m_filter->text());
     m_updating = false;
+}
+
+QTreeWidgetItem* FeatureTreePanel::historyItem(const doc::Feature& f, QTreeWidgetItem* parent) {
+    const doc::PartModel& model = m_document->model();
+    auto* item = parent ? new QTreeWidgetItem(parent) : new QTreeWidgetItem();
+    const QColor disabled = palette().color(QPalette::Disabled, QPalette::Text);
+    const QString name = model.featureName(f);
+    QString tip;
+    if (f.type == doc::FeatureType::Sketch) {
+        const doc::SketchFeature* sketch = model.sketch(f.id);
+        QString prefix;
+        QString state = tr("Fully defined");
+        if (sketch->status == ::bl::sketch::SketchStatus::UnderDefined) {
+            prefix = QStringLiteral("(-) ");
+            state = tr("Under defined");
+        } else if (sketch->status == ::bl::sketch::SketchStatus::OverDefined) {
+            prefix = QStringLiteral("(+) ");
+            state = tr("Over defined");
+        }
+        item->setText(0, prefix + name);
+        item->setData(0, kIdRole, QStringLiteral("sketch"));
+        item->setData(0, kSketchRole, sketch->id);
+        tip = tr("%1 on %2\n%3. Double-click to edit.").arg(name, sketch->planeName, state);
+        if (!sketch->visible) {
+            item->setForeground(0, disabled);
+        }
+    } else {
+        item->setText(0, name);
+        item->setData(0, kIdRole, QStringLiteral("feature"));
+        item->setData(0, kFeatureRole, f.id);
+        tip = f.type == doc::FeatureType::Import ? tr("%1\nImported from %2").arg(name, f.import.sourceFile)
+                                                 : tr("%1\nDouble-click to edit.").arg(name);
+    }
+    item->setIcon(0, icon(iconFor(f), name));
+    item->setFlags(item->flags() | Qt::ItemIsEditable);
+    switch (f.state) {
+    case doc::FeatureState::Ok: break;
+    case doc::FeatureState::Warning:
+        item->setForeground(0, QColor(0xD0, 0x8A, 0x10));
+        tip += QStringLiteral("\n") + f.message;
+        break;
+    case doc::FeatureState::Error:
+        item->setForeground(0, QColor(0xD0, 0x30, 0x30));
+        tip += QStringLiteral("\n") + f.message;
+        break;
+    case doc::FeatureState::Suppressed:
+        item->setForeground(0, disabled);
+        tip += tr("\n(suppressed)");
+        break;
+    case doc::FeatureState::RolledBack:
+        item->setForeground(0, disabled);
+        tip += tr("\n(rolled back)");
+        break;
+    }
+    item->setToolTip(0, tip);
+    return item;
+}
+
+void FeatureTreePanel::showFeatureMenu(QTreeWidgetItem* item, const QPoint& globalPos) {
+    const QUuid id = featureId(item);
+    const doc::Feature* f = m_document ? m_document->model().feature(id) : nullptr;
+    if (!f) {
+        return;
+    }
+    const doc::PartModel& model = m_document->model();
+    const int index = model.featureIndex(id);
+    QMenu menu(this);
+    QAction* edit = nullptr;
+    if (f->type == doc::FeatureType::Extrude) {
+        edit = menu.addAction(icon(iconFor(*f)), tr("Edit Feature"));
+    }
+    QAction* rename = menu.addAction(tr("Rename"));
+    rename->setShortcut(Qt::Key_F2);
+    QAction* suppress = menu.addAction(f->suppressed ? tr("Unsuppress") : tr("Suppress"));
+    menu.addSeparator();
+    QAction* rollHere = menu.addAction(tr("Roll Back"));
+    rollHere->setToolTip(tr("Move the rollback bar above this feature"));
+    QAction* rollEnd = menu.addAction(tr("Roll to End"));
+    rollEnd->setEnabled(model.rollback >= 0);
+    menu.addSeparator();
+    QAction* remove = menu.addAction(tr("Delete"));
+    remove->setShortcut(QKeySequence::Delete);
+    const bool suppressed = f->suppressed;
+    QAction* chosen = menu.exec(globalPos);
+    if (!chosen) {
+        return;
+    }
+    if (chosen == edit) {
+        emit featureEditRequested(id);
+    } else if (chosen == rename) {
+        m_updating = true;
+        item->setText(0, model.feature(id)->name);
+        m_updating = false;
+        m_tree->editItem(item);
+    } else if (chosen == suppress) {
+        emit featureSuppressRequested(id, !suppressed);
+    } else if (chosen == rollHere) {
+        emit rollbackRequested(index);
+    } else if (chosen == rollEnd) {
+        emit rollbackRequested(-1);
+    } else if (chosen == remove) {
+        emit featureDeleteRequested(id);
+    }
 }
 
 QList<QUuid> FeatureTreePanel::selectedBodies() const {
@@ -248,6 +403,10 @@ void FeatureTreePanel::setSelectedBodies(const QList<QUuid>& ids) {
 
 void FeatureTreePanel::showContextMenu(const QPoint& pos) {
     QTreeWidgetItem* item = m_tree->itemAt(pos);
+    if (m_document && !featureId(item).isNull()) {
+        showFeatureMenu(item, m_tree->viewport()->mapToGlobal(pos));
+        return;
+    }
     if (const QUuid sid = sketchId(item); m_document && !sid.isNull()) {
         const doc::SketchFeature* sketch = m_document->model().sketch(sid);
         if (!sketch) {
@@ -319,6 +478,10 @@ bool FeatureTreePanel::eventFilter(QObject* watched, QEvent* event) {
         }
         if (const QUuid sid = selectedSketch(); !sid.isNull() && key->key() == Qt::Key_Delete) {
             emit sketchDeleteRequested(sid);
+            return true;
+        }
+        if (const QUuid fid = selectedFeature(); !fid.isNull() && key->key() == Qt::Key_Delete) {
+            emit featureDeleteRequested(fid);
             return true;
         }
     }

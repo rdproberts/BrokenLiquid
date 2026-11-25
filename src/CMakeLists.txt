@@ -20,6 +20,7 @@ set_target_properties(bl_core PROPERTIES AUTOMOC OFF)
 # --- sketch: 2D sketch model and constraint solver (Qt- and OCCT-free) --------------------------------
 add_library(bl_sketch STATIC
     sketch/Sketch.cpp        sketch/Sketch.h
+    sketch/SketchJson.cpp
     sketch/Solver.cpp        sketch/Solver.h
     sketch/Operations.cpp sketch/Operations.h
     sketch/Geometry.cpp      sketch/Geometry.h)
@@ -31,17 +32,21 @@ set_target_properties(bl_sketch PROPERTIES AUTOMOC OFF)
 add_library(bl_kernel STATIC
     kernel/StepIO.cpp
     kernel/ShapeInfo.cpp
-    kernel/Measure.cpp       kernel/Measure.h)
+    kernel/Measure.cpp       kernel/Measure.h
+    kernel/Naming.cpp        kernel/Naming.h
+    kernel/Features.cpp      kernel/Features.h)
 add_library(bl::kernel ALIAS bl_kernel)
-target_link_libraries(bl_kernel PUBLIC bl::core bl::occt)
+target_link_libraries(bl_kernel PUBLIC bl::core bl::occt bl::sketch)
 set_target_properties(bl_kernel PROPERTIES AUTOMOC OFF)
 
 # --- doc: documents, their models and undo history ---------------------------------------------------
 add_library(bl_doc STATIC
     doc/Document.cpp         doc/Document.h
+    doc/Rebuild.cpp          doc/Rebuild.h
+    doc/PartFile.cpp         doc/PartFile.h
     doc/PartModel.h)
 add_library(bl::doc ALIAS bl_doc)
-target_link_libraries(bl_doc PUBLIC bl::kernel bl::sketch Qt6::Core Qt6::Gui)
+target_link_libraries(bl_doc PUBLIC bl::kernel bl::sketch Qt6::Core Qt6::Gui PRIVATE Qt6::CorePrivate)
 
 # --- render: OCCT viewer inside Qt ------------------------------------------------------------------
 add_library(bl_render STATIC
@@ -70,6 +75,7 @@ add_library(bl_ui STATIC
     ui/MeasureCommand.cpp    ui/MeasureCommand.h
     ui/SectionCommand.cpp    ui/SectionCommand.h
     ui/SketchEditor.cpp      ui/SketchEditor.h
+    ui/ExtrudeCommand.cpp    ui/ExtrudeCommand.h
     ui/HomePage.cpp          ui/HomePage.h
     ui/OptionsDialog.cpp     ui/OptionsDialog.h
     ui/MainWindow.cpp        ui/MainWindow.h)

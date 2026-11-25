@@ -38,7 +38,8 @@ render::Drawing2d inactiveSketchDrawing(const sketch::Sketch& sketch, bool dark)
 class SketchPlaneCommand : public InteractiveCommand {
     Q_OBJECT
 public:
-    using Chosen = std::function<void(const gp_Ax3& plane, const QString& name)>;
+    // `face`: set when the plane is a model face (the sketch then follows the face).
+    using Chosen = std::function<void(const gp_Ax3& plane, const QString& name, std::optional<kernel::FaceRef> face)>;
     SketchPlaneCommand(CommandHost& host, Chosen chosen);
 
     QString id() const override { return QStringLiteral("sketch.plane"); }
@@ -49,7 +50,7 @@ public:
     void selectionChanged() override;
 
 private:
-    void choose(const gp_Ax3& plane, const QString& name);
+    void choose(const gp_Ax3& plane, const QString& name, std::optional<kernel::FaceRef> face = std::nullopt);
 
     Chosen m_chosen;
     bool m_done = false;

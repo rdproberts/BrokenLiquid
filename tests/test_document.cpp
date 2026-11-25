@@ -8,11 +8,9 @@ using namespace bl;
 
 namespace {
 
-doc::Body box(const QString& name) {
-    doc::Body b;
-    b.name = name;
-    b.shape = BRepPrimAPI_MakeBox(10, 20, 30).Shape();
-    return b;
+// Adds an imported box (feature + body) to the model.
+void addBox(doc::PartModel& m, const QString& name) {
+    doc::addImport(m, BRepPrimAPI_MakeBox(10, 20, 30).Shape(), name, QString());
 }
 
 } // namespace
@@ -25,7 +23,7 @@ TEST(Document, TransactPushesUndoAndSignals) {
 
     EXPECT_TRUE(d.isPristine());
     EXPECT_TRUE(d.transact(QStringLiteral("Import Body"), [](doc::PartModel& m) {
-        m.bodies.push_back(box(QStringLiteral("Box")));
+        addBox(m, QStringLiteral("Box"));
         return true;
     }));
     EXPECT_EQ(d.model().bodies.size(), 1u);
@@ -57,8 +55,8 @@ TEST(Document, NoOpTransactionsAreDropped) {
 
 TEST(Document, UndoRestoresEditedBodies) {
     doc::PartModel initial;
-    initial.bodies.push_back(box(QStringLiteral("A")));
-    const QUuid id = initial.bodies.front().id;
+    addBox(initial, QStringLiteral("A"));
+    const QUuid id = initial.features.front().body;
     doc::Document d(doc::DocumentType::Part, QStringLiteral("Part1"), initial);
     EXPECT_FALSE(d.isModified());
 
@@ -87,7 +85,7 @@ TEST(Document, UndoRestoresEditedBodies) {
 TEST(Document, SavedStateTracking) {
     doc::Document d(doc::DocumentType::Part, QStringLiteral("Part1"));
     d.transact(QStringLiteral("Import Body"), [](doc::PartModel& m) {
-        m.bodies.push_back(box(QStringLiteral("Box")));
+        addBox(m, QStringLiteral("Box"));
         return true;
     });
     d.markSaved();

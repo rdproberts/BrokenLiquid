@@ -1,5 +1,7 @@
 #include "doc/Document.h"
 
+#include "doc/Rebuild.h"
+
 #include <spdlog/spdlog.h>
 
 namespace bl::doc {
@@ -8,14 +10,20 @@ namespace {
 // Cheap structural comparison: did the transaction change anything?
 bool sameModel(const PartModel& a, const PartModel& b) {
     if (a.units != b.units || a.importCount != b.importCount || a.bodies.size() != b.bodies.size() ||
-        a.sketchCount != b.sketchCount || a.sketches.size() != b.sketches.size()) {
+        a.sketchCount != b.sketchCount || a.sketches.size() != b.sketches.size() || a.rollback != b.rollback ||
+        a.extrudeCount != b.extrudeCount || a.cutCount != b.cutCount || a.features.size() != b.features.size()) {
         return false;
+    }
+    for (size_t i = 0; i < a.features.size(); ++i) {
+        if (!a.features[i].sameInput(b.features[i])) {
+            return false;
+        }
     }
     for (size_t i = 0; i < a.sketches.size(); ++i) {
         const SketchFeature& x = a.sketches[i];
         const SketchFeature& y = b.sketches[i];
         if (x.id != y.id || x.name != y.name || x.visible != y.visible || x.planeName != y.planeName ||
-            x.status != y.status || !(x.sketch == y.sketch) ||
+            x.status != y.status || !(x.sketch == y.sketch) || x.face != y.face ||
             !x.plane.Location().IsEqual(y.plane.Location(), 0.0) || !x.plane.Direction().IsEqual(y.plane.Direction(), 0.0) ||
             !x.plane.XDirection().IsEqual(y.plane.XDirection(), 0.0)) {
             return false;
@@ -35,7 +43,9 @@ bool sameModel(const PartModel& a, const PartModel& b) {
 } // namespace
 
 Document::Document(DocumentType type, QString title, PartModel initial, QObject* parent)
-    : QObject(parent), m_type(type), m_title(std::move(title)), m_model(std::move(initial)) {}
+    : QObject(parent), m_type(type), m_title(std::move(title)), m_model(std::move(initial)) {
+    rebuild(m_model);
+}
 
 void Document::setTitle(const QString& title) {
     if (title != m_title) {
@@ -46,7 +56,11 @@ void Document::setTitle(const QString& title) {
 
 bool Document::transact(const QString& label, const std::function<bool(PartModel&)>& change) {
     PartModel next = m_model;
-    if (!change(next) || sameModel(next, m_model)) {
+    if (!change(next)) {
+        return false;
+    }
+    rebuild(next, &m_model);
+    if (sameModel(next, m_model)) {
         return false;
     }
     spdlog::debug("transaction '{}' on {}", label.toStdString(), m_title.toStdString());
@@ -70,6 +84,11 @@ void Document::redo() {
     }
     setModel(m_history.redo());
     emit historyChanged();
+}
+
+void Document::regenerate() {
+    rebuild(m_model);
+    emit modelChanged();
 }
 
 void Document::markSaved() {

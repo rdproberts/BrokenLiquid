@@ -18,6 +18,8 @@ option(BL_BUILD_SPIKES "Build Phase 0 spike programs"  ON)
 
 # --- Dependencies (provided by vcpkg, see vcpkg.json) ------------------------------------------
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Network Svg Concurrent)
+# QZipReader/QZipWriter (QtCore private API) for the .blpart container (ADR 0008).
+find_package(Qt6 REQUIRED COMPONENTS CorePrivate)
 find_package(OpenCASCADE CONFIG REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)

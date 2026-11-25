@@ -3,10 +3,21 @@
 Free, local, history-based parametric 3D CAD for Windows, with a workflow SolidWorks users will
 find familiar: sketch → feature → part → assembly → automatic engineering drawing.
 
-**Status:** Phase 2 (sketcher) in progress. Phase 1 is done: you can open STEP files as parts
-(one tab each), measure distances, angles, lengths and areas, cut the model with a section view,
-and rename, hide, recolour or delete bodies with full undo/redo, with the Home screen, Options
-dialog and status-bar units switcher.
+**Status:** Phase 3 (part modelling) in progress. Phases 1 and 2 are done: STEP files open as
+parts (one tab each), you can measure distances, angles, lengths and areas, cut the model with a
+section view, and rename, hide, recolour or delete bodies with full undo/redo, with the Home
+screen, Options dialog and status-bar units switcher.
+
+Part modelling so far: **Extruded Boss/Base** and **Extruded Cut** from a sketch's closed regions
+(Blind, Through All, Mid Plane, reverse, a second direction, merge or new body) with a live
+preview, a rebuild engine that re-runs only what changed, and a Feature Tree with the history,
+edit, rename, suppress, delete and a rollback bar. Sketches on a model face follow that face when
+upstream features change, through persistent face names ([ADR 0003](docs/adr/0003-persistent-naming.md));
+a face that really disappeared turns the sketch red instead of being guessed. Parts save and open
+as native **`.blpart`** files ([ADR 0008](docs/adr/0008-native-file-format.md)), with a `.bak` of
+the previous save.
+
+![Part: the bracket sketch extruded 20 mm, with a sketch on its end face cut Through All](docs/images/part.png)
 
 Sketching works on the Front, Top and Right planes or a flat face: lines (with automatic
 horizontal, vertical, coincident, midpoint and tangent relations from snapping), centerlines,

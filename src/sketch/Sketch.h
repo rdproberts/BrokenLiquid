@@ -9,6 +9,8 @@
 // curves therefore mostly become relations between points, and "coincident" is just two points
 // held together.
 
+#include <nlohmann/json_fwd.hpp>
+
 #include <map>
 #include <optional>
 #include <string>
@@ -135,6 +137,11 @@ public:
     std::string name(Id id) const;
 
     bool operator==(const Sketch&) const = default;
+
+    // Everything, ids and numbering included (the .blpart file). fromJson leaves `out` untouched
+    // and fills `error` when the data does not fit.
+    nlohmann::json toJson() const;
+    static bool fromJson(const nlohmann::json& j, Sketch& out, std::string* error = nullptr);
 
 private:
     int nextNumber(int kind) { return ++m_counters[kind]; }

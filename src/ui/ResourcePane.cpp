@@ -57,7 +57,7 @@ QWidget* ResourcePane::makeHomePage(CommandRegistry& registry) {
             layout->addWidget(b);
         }
     }
-    auto* hint = new QLabel(tr("Tip: drop a STEP file anywhere on the window to open it.\n\n"
+    auto* hint = new QLabel(tr("Tip: drop a part (.blpart) or STEP file anywhere on the window to open it.\n\n"
                                "Middle-drag rotates, Ctrl+middle-drag pans, the wheel zooms, F fits."),
                             page);
     hint->setWordWrap(true);

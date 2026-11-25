@@ -220,7 +220,11 @@ void SketchPlaneCommand::selectionChanged() {
     for (const render::OcctViewer::Pick& pick : view->viewer()->selection()) {
         if (const auto plane = planarFaceOf(pick.shape)) {
             const doc::Body* body = view->document()->model().body(view->bodyOf(pick.object));
-            choose(facePlane(*plane), body ? tr("Face of %1").arg(body->name) : tr("Face"));
+            std::optional<kernel::FaceRef> ref;
+            if (body) {
+                ref = kernel::referenceTo(body->named, TopoDS::Face(pick.shape));
+            }
+            choose(facePlane(*plane), body ? tr("Face of %1").arg(body->name) : tr("Face"), ref);
             return;
         }
     }
@@ -229,13 +233,13 @@ void SketchPlaneCommand::selectionChanged() {
     }
 }
 
-void SketchPlaneCommand::choose(const gp_Ax3& plane, const QString& name) {
+void SketchPlaneCommand::choose(const gp_Ax3& plane, const QString& name, std::optional<kernel::FaceRef> face) {
     if (m_done) {
         return;
     }
     m_done = true;
     // Starting the sketch replaces this command; do it once this call has returned.
-    QTimer::singleShot(0, [chosen = m_chosen, plane, name] { chosen(plane, name); });
+    QTimer::singleShot(0, [chosen = m_chosen, plane, name, face] { chosen(plane, name, face); });
 }
 
 // --- SketchEditor: life cycle -------------------------------------------------------------------------

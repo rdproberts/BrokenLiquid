@@ -5,12 +5,15 @@
 #include "core/Paths.h"
 #include "core/Settings.h"
 #include "doc/Document.h"
+#include "doc/PartFile.h"
+#include "doc/Rebuild.h"
 #include "kernel/Measure.h"
 #include "kernel/ShapeInfo.h"
 #include "ui/CommandBar.h"
 #include "ui/CommandRegistry.h"
 #include "ui/ConfirmationCorner.h"
 #include "ui/DocumentView.h"
+#include "ui/ExtrudeCommand.h"
 #include "ui/FeatureTreePanel.h"
 #include "ui/HomePage.h"
 #include "ui/Icons.h"
@@ -57,6 +60,7 @@
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
+#include <QTreeWidget>
 #include <QToolBar>
 #include <QToolButton>
 #include <QUrl>
@@ -75,6 +79,12 @@ bool isStepFile(const QString& path) {
     return suffix == QLatin1String("step") || suffix == QLatin1String("stp");
 }
 
+bool isPartFile(const QString& path) {
+    return QFileInfo(path).suffix().compare(QLatin1String(doc::kPartExtension), Qt::CaseInsensitive) == 0;
+}
+
+bool isOpenable(const QString& path) { return isStepFile(path) || isPartFile(path); }
+
 QString q(const std::string& s) { return QString::fromStdString(s); }
 
 // Commands that act on an open document; disabled on the Home screen.
@@ -83,7 +93,7 @@ const char* const kDocumentCommands[] = {
     "view.back", "view.left", "view.right", "view.top", "view.bottom", "view.isometric", "view.dimetric",
     "view.trimetric", "view.normalTo", "view.style.shadedEdges", "view.style.shaded", "view.style.hlr",
     "view.style.hlv", "view.style.wireframe", "evaluate.measure", "evaluate.massProps", "evaluate.check",
-    "window.next", "sketch.sketch"};
+    "window.next", "sketch.sketch", "file.save", "file.saveAs", "features.extrude", "features.extrudeCut", "edit.rebuild"};
 
 // Sketch tools: command id -> tool (enabled while a sketch is open).
 struct SketchToolDef {
@@ -270,17 +280,21 @@ void MainWindow::registerCommands() {
             [this] { newPart(); });
     planned("file.new.assembly", tr("New Assembly"), "Phase 4", "new-assembly");
     planned("file.new.drawing", tr("New Drawing"), "Phase 5", "new-drawing");
-    command("file.open", tr("Open…"), "open", QKeySequence::Open, tr("Open a STEP file as a new part"), [this] {
+    command("file.open", tr("Open…"), "open", QKeySequence::Open, tr("Open a part, or a STEP file as a new part"), [this] {
         const QString startDir = q(Settings::global().get<std::string>("files.lastDir", ""));
-        const QString path = QFileDialog::getOpenFileName(this, tr("Open"), startDir,
-                                                          tr("STEP files (*.step *.stp);;All files (*)"));
+        const QString path = QFileDialog::getOpenFileName(
+            this, tr("Open"), startDir,
+            tr("All supported (*.blpart *.step *.stp);;BrokenLiquid parts (*.blpart);;STEP files (*.step *.stp);;All files (*)"));
         if (!path.isEmpty()) {
             openFile(path);
         }
     });
     command("file.close", tr("Close"), "exit", QKeySequence(Qt::CTRL | Qt::Key_W), tr("Close the active document"),
             [this] { closeDocument(m_documents->currentIndex()); });
-    planned("file.save", tr("Save"), "Phase 3", "save", QKeySequence::Save);
+    command("file.save", tr("Save"), "save", QKeySequence::Save, tr("Save the active part (.blpart)"),
+            [this] { saveDocument(m_activeView, false); });
+    command("file.saveAs", tr("Save As…"), "save", QKeySequence::SaveAs, tr("Save the active part under a new name"),
+            [this] { saveDocument(m_activeView, true); });
     planned("file.print", tr("Print…"), "Phase 5", "print", QKeySequence::Print);
     command("file.exit", tr("Exit"), "exit", QKeySequence(), tr("Close BrokenLiquid"), [this] { close(); });
     command("insert.body", tr("Imported Body (STEP)…"), "open", QKeySequence(),
@@ -319,7 +333,18 @@ void MainWindow::registerCommands() {
                     showStatus(tr("Redo: %1").arg(label));
                 }
             });
-    planned("edit.rebuild", tr("Rebuild"), "Phase 3", "rebuild", QKeySequence(Qt::CTRL | Qt::Key_B));
+    command("edit.rebuild", tr("Rebuild"), "rebuild", QKeySequence(Qt::CTRL | Qt::Key_B),
+            tr("Rebuild every feature of the part (Ctrl+B)"), [this] {
+                if (doc::Document* d = activeDocument()) {
+                    d->regenerate();
+                    int errors = 0;
+                    for (const doc::Feature& f : d->model().features) {
+                        errors += f.state == doc::FeatureState::Error ? 1 : 0;
+                    }
+                    showStatus(errors ? tr("Rebuilt: %n feature(s) with errors (red in the Feature Tree).", nullptr, errors)
+                                      : tr("Rebuilt."));
+                }
+            });
     command("tools.options", tr("Options…"), "options", QKeySequence(), tr("System options and document properties"),
             [this] { showOptions(); });
     command("window.next", tr("Next Document"), "pane-files", QKeySequence(Qt::CTRL | Qt::Key_Tab),
@@ -422,11 +447,9 @@ void MainWindow::registerCommands() {
         QString label;
         const char* icon;
     } features[] = {
-        {"features.extrude", tr("Extruded Boss/Base"), "extrude"},
         {"features.revolve", tr("Revolved Boss/Base"), "revolve"},
         {"features.sweep", tr("Swept Boss/Base"), "sweep"},
         {"features.loft", tr("Lofted Boss/Base"), "loft"},
-        {"features.extrudeCut", tr("Extruded Cut"), "extrude-cut"},
         {"features.revolveCut", tr("Revolved Cut"), "revolve-cut"},
         {"features.sweepCut", tr("Swept Cut"), "sweep-cut"},
         {"features.loftCut", tr("Lofted Cut"), "loft-cut"},
@@ -446,6 +469,12 @@ void MainWindow::registerCommands() {
         {"features.moveCopy", tr("Move/Copy Body"), "move-copy"},
         {"features.equations", tr("Equations"), "equations"},
     };
+    command("features.extrude", tr("Extruded Boss/Base"), "extrude", QKeySequence(),
+            tr("Extrude a sketch's closed contours into a solid (uses the open, selected or newest sketch)"),
+            [this] { startExtrude(false); });
+    command("features.extrudeCut", tr("Extruded Cut"), "extrude-cut", QKeySequence(),
+            tr("Cut a sketch's closed contours out of the bodies (uses the open, selected or newest sketch)"),
+            [this] { startExtrude(true); });
     for (const auto& f : features) {
         planned(f.id, f.label, "Phase 3 (Part modelling)", f.icon);
     }
@@ -557,7 +586,7 @@ void MainWindow::buildMenus() {
 
     QMenu* file = menuBar()->addMenu(tr("&File"));
     addAll(file, {"file.new.part", "file.new.assembly", "file.new.drawing", nullptr, "file.open", "file.close",
-                  "file.save", nullptr, "file.print", nullptr, "file.exit"});
+                  "file.save", "file.saveAs", nullptr, "file.print", nullptr, "file.exit"});
 
     QMenu* edit = menuBar()->addMenu(tr("&Edit"));
     addAll(edit, {"edit.undo", "edit.redo", nullptr, "edit.rebuild"});
@@ -747,6 +776,11 @@ void MainWindow::buildDocks() {
     connect(m_tree, &FeatureTreePanel::sketchRenameRequested, this, &MainWindow::renameSketch);
     connect(m_tree, &FeatureTreePanel::sketchVisibilityRequested, this, &MainWindow::setSketchVisible);
     connect(m_tree, &FeatureTreePanel::sketchDeleteRequested, this, &MainWindow::deleteSketch);
+    connect(m_tree, &FeatureTreePanel::featureEditRequested, this, &MainWindow::editFeature);
+    connect(m_tree, &FeatureTreePanel::featureRenameRequested, this, &MainWindow::renameFeature);
+    connect(m_tree, &FeatureTreePanel::featureSuppressRequested, this, &MainWindow::suppressFeature);
+    connect(m_tree, &FeatureTreePanel::featureDeleteRequested, this, &MainWindow::deleteFeature);
+    connect(m_tree, &FeatureTreePanel::rollbackRequested, this, &MainWindow::setRollback);
 
     auto* left = new QDockWidget(tr("Feature Tree"), this);
     left->setObjectName(QStringLiteral("ManagerDock"));
@@ -888,14 +922,8 @@ bool MainWindow::closeDocument(int index) {
     if (!view) {
         return false;
     }
-    if (view->document()->isModified()) {
-        const auto answer = QMessageBox::question(
-            this, tr("Close"),
-            tr("%1 has changes that are not saved. Saving arrives in Phase 3.\n\nClose it anyway?")
-                .arg(view->document()->title()));
-        if (answer != QMessageBox::Yes) {
-            return false;
-        }
+    if (!confirmClose(view)) {
+        return false;
     }
     if (view == m_activeView) {
         finishCommand(false, true);
@@ -996,8 +1024,13 @@ void MainWindow::openFile(const QString& path) {
     if (path.isEmpty()) {
         return;
     }
+    if (isPartFile(path)) {
+        openPart(path);
+        return;
+    }
     if (!isStepFile(path)) {
-        QMessageBox::information(this, tr("Open"), tr("BrokenLiquid can open STEP files (.step, .stp) so far.\n\n%1").arg(path));
+        QMessageBox::information(this, tr("Open"),
+                                 tr("BrokenLiquid opens parts (.blpart) and STEP files (.step, .stp).\n\n%1").arg(path));
         return;
     }
     importAsync(path, false);
@@ -1052,9 +1085,8 @@ void MainWindow::finishImport(const kernel::ImportResult& result, const QString&
     if (insert) {
         doc::Document* d = activeDocument();
         d->transact(tr("Import Body"), [&bodies](doc::PartModel& m) {
-            for (doc::Body& b : bodies) {
-                ++m.importCount;
-                m.bodies.push_back(std::move(b));
+            for (const doc::Body& b : bodies) {
+                doc::addImport(m, b.shape, b.name, b.sourceFile, b.xcaf, b.label);
             }
             return true;
         });
@@ -1067,8 +1099,9 @@ void MainWindow::finishImport(const kernel::ImportResult& result, const QString&
         }
         doc::PartModel model;
         model.units = defaultUnits();
-        model.importCount = count;
-        model.bodies = std::move(bodies);
+        for (const doc::Body& b : bodies) {
+            doc::addImport(model, b.shape, b.name, b.sourceFile, b.xcaf, b.label);
+        }
         auto document = std::make_unique<doc::Document>(doc::DocumentType::Part, QFileInfo(path).completeBaseName(),
                                                         std::move(model));
         document->setFilePath(path);
@@ -1208,16 +1241,22 @@ void MainWindow::startSketch() {
         for (const auto& pick : m_activeView->viewer()->selection()) {
             if (const auto plane = planarFace(pick.shape)) {
                 const doc::Body* body = activeDocument()->model().body(m_activeView->bodyOf(pick.object));
-                startSketchOn(facePlane(*plane), body ? tr("Face of %1").arg(body->name) : tr("Face"));
+                std::optional<kernel::FaceRef> ref;
+                if (body) {
+                    ref = kernel::referenceTo(body->named, TopoDS::Face(pick.shape));
+                }
+                startSketchOn(facePlane(*plane), body ? tr("Face of %1").arg(body->name) : tr("Face"), ref);
                 return;
             }
         }
     }
     startCommand(std::make_unique<SketchPlaneCommand>(
-        *this, [this](const gp_Ax3& plane, const QString& name) { startSketchOn(plane, name); }));
+        *this, [this](const gp_Ax3& plane, const QString& name, std::optional<kernel::FaceRef> face) {
+            startSketchOn(plane, name, face);
+        }));
 }
 
-void MainWindow::startSketchOn(const gp_Ax3& plane, const QString& planeName) {
+void MainWindow::startSketchOn(const gp_Ax3& plane, const QString& planeName, const std::optional<kernel::FaceRef>& face) {
     doc::Document* d = activeDocument();
     if (!d) {
         return;
@@ -1226,6 +1265,7 @@ void MainWindow::startSketchOn(const gp_Ax3& plane, const QString& planeName) {
     feature.name = tr("Sketch%1").arg(d->model().sketchCount + 1);
     feature.planeName = planeName;
     feature.plane = plane;
+    feature.face = face;
     startCommand(std::make_unique<SketchEditor>(*this, std::move(feature), true));
 }
 
@@ -1272,11 +1312,228 @@ void MainWindow::deleteSketch(const QUuid& id) {
         showStatus(tr("Exit the sketch before deleting it."));
         return;
     }
+    doc::Document* d = activeDocument();
+    if (!d) {
+        return;
+    }
+    QUuid consumer;
+    if (const doc::Feature* f = d->model().consumerOf(id)) {
+        const doc::SketchFeature* s = d->model().sketch(id);
+        if (QMessageBox::question(this, tr("Delete Sketch"),
+                                  tr("%1 is used by %2. Delete both?").arg(s ? s->name : QString(), f->name)) !=
+            QMessageBox::Yes) {
+            return;
+        }
+        consumer = f->id;
+    }
+    d->transact(tr("Delete Sketch"), [&](doc::PartModel& m) {
+        std::erase_if(m.features, [&consumer](const doc::Feature& f) { return !consumer.isNull() && f.id == consumer; });
+        return std::erase_if(m.sketches, [&id](const doc::SketchFeature& s) { return s.id == id; }) > 0;
+    });
+}
+
+// --- Part features ------------------------------------------------------------------------------------
+
+void MainWindow::startExtrude(bool cut) {
+    doc::Document* d = activeDocument();
+    if (!d || !m_activeView) {
+        showStatus(tr("Open or create a part first."));
+        return;
+    }
+    QUuid sketch;
+    if (SketchEditor* editor = sketchEditor()) {
+        sketch = editor->sketchId(); // exit the sketch and extrude it, as the familiar workflow does
+        finishCommand(true);
+    } else if (m_command) {
+        finishCommand(m_command->keepOnInterrupt());
+    }
+    const doc::PartModel& m = d->model();
+    if (sketch.isNull() || !m.sketch(sketch)) {
+        sketch = m_tree->selectedSketch();
+    }
+    if (sketch.isNull()) { // the newest sketch no feature uses yet
+        for (auto it = m.features.rbegin(); it != m.features.rend(); ++it) {
+            if (it->type == doc::FeatureType::Sketch && !m.consumerOf(it->id)) {
+                sketch = it->id;
+                break;
+            }
+        }
+    }
+    if (sketch.isNull() || !m.sketch(sketch)) {
+        showStatus(tr("Draw a sketch first (Sketch tab), or select one in the Feature Tree."), 6000);
+        return;
+    }
+    if (const doc::Feature* f = m.consumerOf(sketch)) {
+        showStatus(tr("%1 is already used by %2: edit that feature instead.").arg(m.sketch(sketch)->name, f->name), 6000);
+        return;
+    }
+    startCommand(std::make_unique<ExtrudeCommand>(*this, sketch, cut));
+}
+
+void MainWindow::editFeature(const QUuid& id) {
+    const doc::Document* d = activeDocument();
+    const doc::Feature* f = d ? d->model().feature(id) : nullptr;
+    if (!f) {
+        return;
+    }
+    if (f->type == doc::FeatureType::Extrude) {
+        startCommand(std::make_unique<ExtrudeCommand>(*this, f->extrude.sketch, f->extrude.cut, id));
+    } else if (f->type == doc::FeatureType::Sketch) {
+        editSketch(id);
+    }
+}
+
+void MainWindow::renameFeature(const QUuid& id, const QString& name) {
     if (doc::Document* d = activeDocument()) {
-        d->transact(tr("Delete Sketch"), [&](doc::PartModel& m) {
-            return std::erase_if(m.sketches, [&id](const doc::SketchFeature& s) { return s.id == id; }) > 0;
+        d->transact(tr("Rename Feature"), [&](doc::PartModel& m) {
+            doc::Feature* f = m.feature(id);
+            if (!f || f->type == doc::FeatureType::Sketch) {
+                return false;
+            }
+            f->name = name;
+            return true;
         });
     }
+}
+
+void MainWindow::suppressFeature(const QUuid& id, bool suppressed) {
+    if (doc::Document* d = activeDocument()) {
+        d->transact(suppressed ? tr("Suppress") : tr("Unsuppress"), [&](doc::PartModel& m) {
+            doc::Feature* f = m.feature(id);
+            if (!f) {
+                return false;
+            }
+            f->suppressed = suppressed;
+            return true;
+        });
+    }
+}
+
+void MainWindow::deleteFeature(const QUuid& id) {
+    doc::Document* d = activeDocument();
+    const doc::Feature* f = d ? d->model().feature(id) : nullptr;
+    if (!f) {
+        return;
+    }
+    if (f->type == doc::FeatureType::Sketch) {
+        deleteSketch(id);
+        return;
+    }
+    if (m_command) {
+        finishCommand(false, true);
+    }
+    const QString name = f->name;
+    d->transact(tr("Delete %1").arg(name), [&](doc::PartModel& m) {
+        const doc::Feature* x = m.feature(id);
+        if (!x) {
+            return false;
+        }
+        if (x->type == doc::FeatureType::Extrude) {
+            if (doc::SketchFeature* s = m.sketch(x->extrude.sketch)) {
+                s->visible = true; // its sketch stays, shown again
+            }
+        }
+        std::erase_if(m.features, [&id](const doc::Feature& g) { return g.id == id; });
+        return true;
+    });
+    showStatus(tr("Deleted %1. Ctrl+Z brings it back.").arg(name));
+}
+
+void MainWindow::setRollback(int index) {
+    if (doc::Document* d = activeDocument()) {
+        d->transact(index < 0 ? tr("Roll to End") : tr("Roll Back"), [&](doc::PartModel& m) {
+            m.rollback = index;
+            return true;
+        });
+    }
+}
+
+// --- Native files -------------------------------------------------------------------------------------
+
+bool MainWindow::saveDocument(DocumentView* view, bool saveAs) {
+    if (!view) {
+        return false;
+    }
+    if (m_command && view == m_activeView) {
+        finishCommand(m_command->keepOnInterrupt()); // an open sketch is kept and saved
+    }
+    doc::Document* d = view->document();
+    QString path = d->filePath();
+    if (saveAs || !isPartFile(path)) {
+        const QString dir = path.isEmpty() ? q(Settings::global().get<std::string>("files.lastDir", ""))
+                                           : QFileInfo(path).absolutePath();
+        const QString suggestion = QDir(dir).filePath(d->title() + QStringLiteral(".blpart"));
+        path = QFileDialog::getSaveFileName(this, tr("Save As"), suggestion, tr("BrokenLiquid parts (*.blpart)"));
+        if (path.isEmpty()) {
+            return false;
+        }
+        if (!isPartFile(path)) {
+            path += QStringLiteral(".blpart");
+        }
+    }
+    QString error;
+    if (!doc::savePart(d->model(), path, &error)) {
+        QMessageBox::warning(this, tr("Save"), error);
+        return false;
+    }
+    d->setFilePath(path);
+    d->setTitle(QFileInfo(path).completeBaseName());
+    d->markSaved();
+    addRecentFile(path);
+    Settings::global().set("files.lastDir", QFileInfo(path).absolutePath().toStdString());
+    showStatus(tr("Saved %1.").arg(QDir::toNativeSeparators(path)));
+    updateTabText(view);
+    return true;
+}
+
+bool MainWindow::confirmClose(DocumentView* view) {
+    doc::Document* d = view->document();
+    if (!d->isModified()) {
+        return true;
+    }
+    const auto answer =
+        QMessageBox::question(this, tr("Close"), tr("Save changes to %1?").arg(d->title()),
+                              QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+    if (answer == QMessageBox::Cancel) {
+        return false;
+    }
+    return answer == QMessageBox::Discard || saveDocument(view, false);
+}
+
+void MainWindow::openPart(const QString& path) {
+    const QString absolute = QFileInfo(path).absoluteFilePath();
+    for (DocumentView* view : views()) {
+        if (QFileInfo(view->document()->filePath()).absoluteFilePath() == absolute) {
+            m_documents->setCurrentWidget(view); // already open
+            return;
+        }
+    }
+    QApplication::setOverrideCursor(Qt::BusyCursor);
+    doc::LoadedPart loaded = doc::loadPart(path);
+    if (!loaded.ok) {
+        QApplication::restoreOverrideCursor();
+        QMessageBox::warning(this, tr("Open"), loaded.error);
+        return;
+    }
+    if (doc::Document* d = activeDocument(); d && d->isPristine() && d->filePath().isEmpty()) {
+        closeDocument(m_documents->indexOf(m_activeView));
+    }
+    auto document = std::make_unique<doc::Document>(doc::DocumentType::Part, QFileInfo(path).completeBaseName(),
+                                                    std::move(loaded.model));
+    document->setFilePath(absolute);
+    int errors = 0;
+    for (const doc::Feature& f : document->model().features) {
+        errors += f.state == doc::FeatureState::Error ? 1 : 0;
+    }
+    addDocument(std::move(document));
+    QApplication::restoreOverrideCursor();
+    addRecentFile(absolute);
+    Settings::global().set("files.lastDir", QFileInfo(path).absolutePath().toStdString());
+    showStatus(errors ? tr("Opened %1: %n feature(s) did not rebuild (red in the Feature Tree).", nullptr, errors)
+                            .arg(QFileInfo(path).fileName())
+                      : tr("Opened %1.").arg(QFileInfo(path).fileName()),
+               6000);
+    spdlog::info("opened part {} ({} features, {} errors)", path.toStdString(), activeDocument()->model().features.size(), errors);
 }
 
 void MainWindow::toggleSection() {
@@ -1349,15 +1606,34 @@ void MainWindow::recolorBodies(const QList<QUuid>& ids) {
 }
 
 void MainWindow::deleteBodies(const QList<QUuid>& ids) {
-    if (doc::Document* d = activeDocument()) {
-        const bool done = d->transact(ids.size() == 1 ? tr("Delete Body") : tr("Delete Bodies"), [&](doc::PartModel& m) {
-            const auto before = m.bodies.size();
-            std::erase_if(m.bodies, [&](const doc::Body& b) { return ids.contains(b.id); });
-            return m.bodies.size() != before;
-        });
-        if (done) {
-            showStatus(tr("Deleted. Ctrl+Z brings it back."));
+    doc::Document* d = activeDocument();
+    if (!d) {
+        return;
+    }
+    // An imported body goes with its import feature; bodies built by features change through them.
+    int byFeatures = 0;
+    const bool done = d->transact(ids.size() == 1 ? tr("Delete Body") : tr("Delete Bodies"), [&](doc::PartModel& m) {
+        bool any = false;
+        for (const QUuid& id : ids) {
+            const doc::Body* b = m.body(id);
+            const doc::Feature* f = b ? m.feature(b->feature) : nullptr;
+            if (!f) {
+                continue;
+            }
+            if (f->type == doc::FeatureType::Import && f->import.shape.IsSame(b->shape)) {
+                const QUuid feature = f->id;
+                std::erase_if(m.features, [&feature](const doc::Feature& x) { return x.id == feature; });
+                any = true;
+            } else {
+                ++byFeatures;
+            }
         }
+        return any;
+    });
+    if (done) {
+        showStatus(tr("Deleted. Ctrl+Z brings it back."));
+    } else if (byFeatures > 0) {
+        showStatus(tr("This body is built by features: delete or suppress them in the Feature Tree."), 6000);
     }
 }
 
@@ -1539,7 +1815,7 @@ void MainWindow::showAbout() {
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
     if (event->mimeData()->hasUrls()) {
         for (const QUrl& url : event->mimeData()->urls()) {
-            if (isStepFile(url.toLocalFile())) {
+            if (isOpenable(url.toLocalFile())) {
                 event->acceptProposedAction();
                 return;
             }
@@ -1549,7 +1825,7 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
 
 void MainWindow::dropEvent(QDropEvent* event) {
     for (const QUrl& url : event->mimeData()->urls()) {
-        if (isStepFile(url.toLocalFile())) {
+        if (isOpenable(url.toLocalFile())) {
             openFile(url.toLocalFile());
             return;
         }
@@ -1573,19 +1849,11 @@ void MainWindow::saveLayout() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
-    QStringList modified;
     for (DocumentView* view : views()) {
-        if (view->document()->isModified()) {
-            modified << view->document()->title();
+        if (!confirmClose(view)) {
+            event->ignore();
+            return;
         }
-    }
-    if (!modified.isEmpty() &&
-        QMessageBox::question(this, tr("Exit"),
-                              tr("These documents have changes that are not saved:\n\n%1\n\nSaving arrives in "
-                                 "Phase 3. Exit anyway?")
-                                  .arg(modified.join(QLatin1Char('\n')))) != QMessageBox::Yes) {
-        event->ignore();
-        return;
     }
     finishCommand(false, true);
     saveLayout();
@@ -1668,7 +1936,7 @@ void MainWindow::runDemo(const QString& demo) {
             spdlog::info("demo sketch-convert: {} curves, {}", e->sketch().curves().size(),
                          sketch::statusName(e->solveResult().status));
         }
-    } else if (demo.startsWith(QLatin1String("sketch"))) {
+    } else if (demo.startsWith(QLatin1String("sketch")) || demo.startsWith(QLatin1String("part"))) {
         // Draws an L bracket profile with the tools as a user would (clicks in sketch coordinates),
         // dimensions part of it and selects the bottom line (relations in the Property Panel).
         startSketchOn(referencePlane(0), referencePlaneName(0));
@@ -1745,6 +2013,17 @@ void MainWindow::runDemo(const QString& demo) {
                 e->escapePressed(); // close the value box, keeping the value
             }
         }
+        if (demo.startsWith(QLatin1String("part"))) {
+            runPartDemo(demo == QLatin1String("part-preview"));
+            if (demo == QLatin1String("part-tree")) {
+                // Roll back above the cut and show the whole history expanded.
+                setRollback(3);
+                if (auto* tree = m_tree->findChild<QTreeWidget*>()) {
+                    tree->expandAll();
+                }
+            }
+            return;
+        }
         if (demo == QLatin1String("sketch-tools")) {
             // Round the far corner, offset the outline inwards, then a slot in the leg and a
             // hexagon in the flange, and end in the Sketch Doctor.
@@ -1792,7 +2071,87 @@ void MainWindow::runDemo(const QString& demo) {
     }
 }
 
+void MainWindow::runPartDemo(bool stopAtCut) {
+    // The bracket sketch is open: extrude it 20 mm, sketch a circle on the end face, cut it
+    // through all, then save the part next to the screenshot (a second smoke run opens it).
+    doc::Document* d = activeDocument();
+    if (!d) {
+        return;
+    }
+    auto accept = [this](const char* what) {
+        finishCommand(true);
+        if (m_command) {
+            spdlog::error("demo part: {} refused", what);
+            finishCommand(false, true);
+            return false;
+        }
+        return true;
+    };
+    finishCommand(true); // close the sketch
+    startExtrude(false);
+    if (auto* x = dynamic_cast<ExtrudeCommand*>(m_command.get())) {
+        x->setDepth(20.0);
+    }
+    if (!accept("boss")) {
+        return;
+    }
+    const doc::Feature* boss = nullptr;
+    for (const doc::Feature& f : d->model().features) {
+        if (f.type == doc::FeatureType::Extrude) {
+            boss = &f;
+        }
+    }
+    const doc::Body* body = boss ? d->model().body(boss->body) : nullptr;
+    const std::vector<TopoDS_Face> caps =
+        body ? body->named.find(doc::namingKey(boss->id) + "/EndCap") : std::vector<TopoDS_Face>{};
+    const auto plane = caps.empty() ? std::nullopt : kernel::planeOfFace(caps.front());
+    if (!plane) {
+        spdlog::error("demo part: no end face");
+        return;
+    }
+    startSketchOn(kernel::sketchAxesOnFace(*plane), tr("Face of %1").arg(body->name),
+                  kernel::referenceTo(body->named, caps.front()));
+    if (SketchEditor* e = sketchEditor()) {
+        e->setTool(SketchEditor::Tool::Circle);
+        e->clickAt(5, 30);
+        e->clickAt(8, 30);
+    }
+    finishCommand(true);
+    startExtrude(true);
+    if (auto* x = dynamic_cast<ExtrudeCommand*>(m_command.get())) {
+        x->setEnd(doc::EndCondition::ThroughAll);
+        x->setReverse(true); // into the material
+    }
+    if (stopAtCut) {
+        if (m_activeView) {
+            m_activeView->viewer()->setStandardView(render::StandardView::Isometric);
+        }
+        return;
+    }
+    if (!accept("cut")) {
+        return;
+    }
+    if (m_activeView) {
+        m_activeView->viewer()->setStandardView(render::StandardView::Isometric);
+    }
+    for (const doc::Feature& f : d->model().features) {
+        spdlog::info("demo part: {} {} {}", f.name.toStdString(), static_cast<int>(f.state), f.message.toStdString());
+    }
+    for (const doc::Body& b : d->model().bodies) {
+        GProp_GProps props;
+        BRepGProp::VolumeProperties(b.shape, props);
+        spdlog::info("demo part: body {} volume {:.2f}", b.name.toStdString(), props.Mass());
+    }
+    if (!m_smokeOut.isEmpty()) {
+        QString path = m_smokeOut;
+        path.replace(QLatin1String(".png"), QLatin1String(".blpart"));
+        d->setFilePath(path);
+        spdlog::info("demo part: saved {} {}", path.toStdString(), saveDocument(m_activeView, false));
+    }
+}
+
 void MainWindow::runSmokeTest(const QString& pngPath, const QString& demo) {
+    m_smokeOut = pngPath;
     auto finished = std::make_shared<bool>(false);
     auto finish = [this, pngPath, demo, finished] {
         if (*finished) {
@@ -1800,10 +2159,11 @@ void MainWindow::runSmokeTest(const QString& pngPath, const QString& demo) {
         }
         *finished = true;
         QTimer::singleShot(400, this, [this, pngPath, demo] {
-            if (demo.startsWith(QLatin1String("sketch")) && !m_activeView) {
-                newPart(); // sketch demos start from an empty part
+            const bool fresh = demo.startsWith(QLatin1String("sketch")) || demo.startsWith(QLatin1String("part"));
+            if (fresh && !m_activeView) {
+                newPart(); // sketch and part demos start from an empty part
             }
-            const int settle = demo.startsWith(QLatin1String("sketch")) ? 700 : 0;
+            const int settle = fresh ? 700 : 0;
             QTimer::singleShot(settle, this, [this, demo] { runDemo(demo); });
             QTimer::singleShot(settle + 900, this, [this, pngPath] {
                 QWidget* target = QApplication::activeModalWidget() ? QApplication::activeModalWidget() : this;

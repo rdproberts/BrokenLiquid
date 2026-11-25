@@ -1,6 +1,7 @@
 # 0003. Persistent naming: generative names built from OCCT modelling history
 
-- **Status:** Accepted (Phase 0 spike passed; design detail continues in Phase 3)
+- **Status:** Accepted (Phase 0 spike passed; face names and references implemented in Phase 3,
+  `src/kernel/Naming.*`; edges and vertices follow with fillets)
 - **Date:** 2026-11-25
 - **Spike:** [`spikes/naming`](../../spikes/naming/main.cpp) — run as CTest `spike_naming`
 
