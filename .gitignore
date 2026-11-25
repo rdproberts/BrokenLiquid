@@ -1,0 +1,21 @@
+# Build output
+/build/
+/out/
+/vcpkg_installed/
+/spikes/out/
+CMakeUserPresets.json
+compile_commands.json
+
+# Machine-specific
+/scripts/env.local.ps1
+/.toolchain/
+
+# IDE
+.vs/
+.vscode/
+*.user
+.idea/
+
+# OS
+Thumbs.db
+desktop.ini

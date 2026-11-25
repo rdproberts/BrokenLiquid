@@ -1,0 +1,72 @@
+name: windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    # The first run builds Qt and OCCT from source; later runs restore them from the cache.
+    timeout-minutes: 360
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/../vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/../vcpkg-cache
+      VCPKG_DISABLE_METRICS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read vcpkg baseline
+        id: baseline
+        shell: pwsh
+        run: |
+          $b = (Get-Content vcpkg.json | ConvertFrom-Json).'builtin-baseline'
+          "sha=$b" >> $env:GITHUB_OUTPUT
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ steps.baseline.outputs.sha }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ steps.baseline.outputs.sha }}-
+            vcpkg-${{ runner.os }}-
+
+      - name: Set up vcpkg at the baseline
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          git clone https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+          git -C $env:VCPKG_ROOT checkout ${{ steps.baseline.outputs.sha }}
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+
+      # build.ps1 enters the MSVC developer shell, fetches Ninja, configures, builds and runs CTest
+      # (unit tests + the three Phase 0 spikes).
+      - name: Build and test
+        shell: pwsh
+        run: ./scripts/build.ps1 -Preset dev -Test
+
+      - name: Upload spike results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-results
+          path: build/dev/spikes/out/
+          if-no-files-found: ignore
+
+      - name: Upload vcpkg logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcpkg-logs
+          path: ${{ env.VCPKG_ROOT }}/buildtrees/**/*.log
+          if-no-files-found: ignore
+
+      # The GUI smoke test (BrokenLiquid --smoke-test) needs desktop OpenGL 3.3+, which hosted
+      # runners do not have. Run it locally (see README).
