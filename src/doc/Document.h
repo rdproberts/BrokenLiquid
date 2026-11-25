@@ -43,7 +43,7 @@ public:
     void markSaved();
 
     // A fresh, unchanged document (no bodies, no history): opening a file may reuse it.
-    bool isPristine() const { return m_model.bodies.empty() && !canUndo() && !canRedo(); }
+    bool isPristine() const { return m_model.bodies.empty() && m_model.sketches.empty() && !canUndo() && !canRedo(); }
 
 signals:
     void modelChanged();

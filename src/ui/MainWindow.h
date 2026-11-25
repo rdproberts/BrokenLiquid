@@ -4,6 +4,7 @@
 #include "render/OcctViewer.h"
 #include "ui/DocumentView.h"
 #include "ui/InteractiveCommand.h"
+#include "ui/SketchEditor.h"
 #include "ui/Theme.h"
 
 #include <QMainWindow>
@@ -60,6 +61,7 @@ public:
     doc::Document* activeDocument() override;
     Units units() const override;
     void showStatus(const QString& text, int ms = 4000) override;
+    void setStateText(const QString& text) override;
 
 signals:
     void ready(); // first frame rendered (or Home screen shown)
@@ -93,8 +95,19 @@ private:
 
     // Interactive commands (Property Panel + Confirmation Corner)
     void startCommand(std::unique_ptr<InteractiveCommand> command);
-    void finishCommand(bool accept);
+    // `force`: no "discard changes?" question (the document is closing anyway).
+    void finishCommand(bool accept, bool force = false);
     void toggleSection();
+
+    // Sketches
+    SketchEditor* sketchEditor() const;
+    void startSketch();
+    void startSketchOn(const gp_Ax3& plane, const QString& planeName);
+    void editSketch(const QUuid& id);
+    void renameSketch(const QUuid& id, const QString& name);
+    void setSketchVisible(const QUuid& id, bool visible);
+    void deleteSketch(const QUuid& id);
+    void updateSketchActions();
 
     // Edits through the active document (undoable)
     void renameBody(const QUuid& id, const QString& name);
@@ -133,6 +146,8 @@ private:
     QPointer<DocumentView> m_activeView;
     std::vector<QMetaObject::Connection> m_activeConnections;
     std::unique_ptr<InteractiveCommand> m_command;
+    QString m_stateText;
+    int m_sketchTab = -1;
     int m_partCounter = 0;
     int m_importsBusy = 0;
     bool m_firstFrame = false;

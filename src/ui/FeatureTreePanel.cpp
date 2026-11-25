@@ -18,6 +18,7 @@ namespace bl::ui {
 namespace {
 constexpr int kIdRole = Qt::UserRole + 1;
 constexpr int kBodyRole = Qt::UserRole + 2;
+constexpr int kSketchRole = Qt::UserRole + 3;
 } // namespace
 
 FeatureTreePanel::FeatureTreePanel(QWidget* parent)
@@ -72,6 +73,10 @@ FeatureTreePanel::FeatureTreePanel(QWidget* parent)
 
     connect(m_filter, &QLineEdit::textChanged, this, &FeatureTreePanel::applyFilter);
     connect(m_tree, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem* item) {
+        if (const QUuid id = sketchId(item); !id.isNull()) {
+            emit sketchEditRequested(id);
+            return;
+        }
         emit itemActivated(item->data(0, kIdRole).toString());
     });
     connect(m_tree, &QTreeWidget::itemSelectionChanged, this, [this] {
@@ -81,6 +86,21 @@ FeatureTreePanel::FeatureTreePanel(QWidget* parent)
     });
     connect(m_tree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int) {
         if (m_updating || !m_document) {
+            return;
+        }
+        if (const QUuid sid = sketchId(item); !sid.isNull()) {
+            const doc::SketchFeature* sketch = m_document->model().sketch(sid);
+            QString name = item->text(0).trimmed();
+            for (const QString& prefix : {QStringLiteral("(-) "), QStringLiteral("(+) ")}) {
+                if (name.startsWith(prefix)) {
+                    name = name.mid(prefix.size());
+                }
+            }
+            if (sketch && !name.isEmpty() && name != sketch->name) {
+                emit sketchRenameRequested(sid, name);
+            } else {
+                rebuild();
+            }
             return;
         }
         const QUuid id = bodyId(item);
@@ -111,6 +131,19 @@ QUuid FeatureTreePanel::bodyId(const QTreeWidgetItem* item) const {
     return item ? item->data(0, kBodyRole).toUuid() : QUuid();
 }
 
+QUuid FeatureTreePanel::sketchId(const QTreeWidgetItem* item) const {
+    return item ? item->data(0, kSketchRole).toUuid() : QUuid();
+}
+
+QUuid FeatureTreePanel::selectedSketch() const {
+    for (const QTreeWidgetItem* item : m_tree->selectedItems()) {
+        if (const QUuid id = sketchId(item); !id.isNull()) {
+            return id;
+        }
+    }
+    return {};
+}
+
 void FeatureTreePanel::setDocument(doc::Document* document) {
     if (m_document == document) {
         return;
@@ -129,7 +162,10 @@ void FeatureTreePanel::setDocument(doc::Document* document) {
 void FeatureTreePanel::rebuild() {
     m_updating = true;
     const QList<QUuid> selected = selectedBodies();
+    const QUuid selectedSketchId = selectedSketch();
     qDeleteAll(m_bodies->takeChildren());
+    qDeleteAll(m_sketchItems);
+    m_sketchItems.clear();
     m_tree->setVisible(m_document != nullptr);
     m_filter->setVisible(m_document != nullptr);
     m_empty->setVisible(m_document == nullptr);
@@ -153,6 +189,34 @@ void FeatureTreePanel::rebuild() {
             item->setToolTip(0, tip);
             item->setSelected(selected.contains(body.id));
             ++count;
+        }
+    }
+    if (m_document) {
+        // Sketches are history features: after the origin, above the rollback bar.
+        const QColor hidden = palette().color(QPalette::Disabled, QPalette::Text);
+        for (const doc::SketchFeature& sketch : m_document->model().sketches) {
+            auto* item = new QTreeWidgetItem();
+            m_root->insertChild(m_root->indexOfChild(m_rollback), item);
+            QString prefix;
+            QString state = tr("Fully defined");
+            if (sketch.status == ::bl::sketch::SketchStatus::UnderDefined) {
+                prefix = QStringLiteral("(-) ");
+                state = tr("Under defined");
+            } else if (sketch.status == ::bl::sketch::SketchStatus::OverDefined) {
+                prefix = QStringLiteral("(+) ");
+                state = tr("Over defined");
+            }
+            item->setText(0, prefix + sketch.name);
+            item->setIcon(0, icon(QStringLiteral("sketch"), sketch.name));
+            item->setData(0, kIdRole, QStringLiteral("sketch"));
+            item->setData(0, kSketchRole, sketch.id);
+            item->setFlags(item->flags() | Qt::ItemIsEditable);
+            item->setToolTip(0, tr("%1 on %2\n%3. Double-click to edit.").arg(sketch.name, sketch.planeName, state));
+            if (!sketch.visible) {
+                item->setForeground(0, hidden);
+            }
+            item->setSelected(sketch.id == selectedSketchId);
+            m_sketchItems << item;
         }
     }
     m_bodies->setText(0, tr("Solid Bodies(%1)").arg(count));
@@ -184,6 +248,35 @@ void FeatureTreePanel::setSelectedBodies(const QList<QUuid>& ids) {
 
 void FeatureTreePanel::showContextMenu(const QPoint& pos) {
     QTreeWidgetItem* item = m_tree->itemAt(pos);
+    if (const QUuid sid = sketchId(item); m_document && !sid.isNull()) {
+        const doc::SketchFeature* sketch = m_document->model().sketch(sid);
+        if (!sketch) {
+            return;
+        }
+        QMenu menu(this);
+        QAction* edit = menu.addAction(icon(QStringLiteral("sketch")), tr("Edit Sketch"));
+        QAction* rename = menu.addAction(tr("Rename"));
+        rename->setShortcut(Qt::Key_F2);
+        QAction* toggle = menu.addAction(sketch->visible ? tr("Hide") : tr("Show"));
+        menu.addSeparator();
+        QAction* remove = menu.addAction(tr("Delete"));
+        remove->setShortcut(QKeySequence::Delete);
+        const bool visible = sketch->visible;
+        QAction* chosen = menu.exec(m_tree->viewport()->mapToGlobal(pos));
+        if (chosen == edit) {
+            emit sketchEditRequested(sid);
+        } else if (chosen == rename) {
+            m_updating = true;
+            item->setText(0, m_document->model().sketch(sid)->name);
+            m_updating = false;
+            m_tree->editItem(item);
+        } else if (chosen == toggle) {
+            emit sketchVisibilityRequested(sid, !visible);
+        } else if (chosen == remove) {
+            emit sketchDeleteRequested(sid);
+        }
+        return;
+    }
     if (!m_document || !item || bodyId(item).isNull()) {
         return;
     }
@@ -222,6 +315,10 @@ bool FeatureTreePanel::eventFilter(QObject* watched, QEvent* event) {
         const QList<QUuid> ids = selectedBodies();
         if (!ids.isEmpty() && key->key() == Qt::Key_Delete) {
             emit deleteRequested(ids);
+            return true;
+        }
+        if (const QUuid sid = selectedSketch(); !sid.isNull() && key->key() == Qt::Key_Delete) {
+            emit sketchDeleteRequested(sid);
             return true;
         }
     }

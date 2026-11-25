@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/OcctViewer.h"
+#include "render/SketchPresentation.h"
 
 #include <AIS_InteractiveObject.hxx>
 #include <Bnd_Box.hxx>
@@ -66,6 +67,11 @@ public:
     void previewSection(const std::optional<SectionSpec>& spec);
     void restoreSection() { previewSection(m_section); }
 
+    // The sketch open in the sketch editor is drawn by the editor, not as a finished sketch.
+    void setEditingSketch(const QUuid& id);
+    // Redraws finished sketches (after a theme change).
+    void refreshSketches() { sync(); }
+
 private:
     void sync();
 
@@ -81,6 +87,8 @@ private:
     ViewHud* m_hud;
     ConfirmationCorner* m_corner;
     std::map<QUuid, Entry> m_objects;
+    std::map<QUuid, Handle(render::SketchPresentation)> m_sketches;
+    QUuid m_editingSketch;
     std::optional<SectionSpec> m_section;
     bool m_fitted = false;
 };

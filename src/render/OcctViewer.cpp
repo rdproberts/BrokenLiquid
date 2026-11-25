@@ -131,7 +131,9 @@ OcctViewer::OcctViewer(QWidget* parent) : QOpenGLWidget(parent) {
     format.setDepthBufferSize(24);
     format.setStencilBufferSize(8);
     format.setVersion(4, 5);
-    format.setProfile(QSurfaceFormat::CoreProfile);
+    // Compatibility, not core: core profiles reject line widths above 1 px, and sketch geometry
+    // and highlighted edges need thicker lines.
+    format.setProfile(QSurfaceFormat::CompatibilityProfile);
     setFormat(format);
 }
 
@@ -279,6 +281,19 @@ void OcctViewer::paintGL() {
         spdlog::error("render error: {}", f.what());
     }
 
+    // Pixel-sized overlay graphics (arrows, glyph offsets) follow zoom and orientation changes.
+    const double scale = m_view->Camera()->Scale();
+    const gp_Dir direction = m_view->Camera()->Direction();
+    if (m_input && (std::abs(scale - m_lastScale) > 1e-9 * std::max(1.0, scale) || !direction.IsEqual(m_lastDirection, 1e-9))) {
+        QMetaObject::invokeMethod(this, [this] {
+            if (m_input) {
+                m_input->viewChanged();
+            }
+        }, Qt::QueuedConnection);
+    }
+    m_lastScale = scale;
+    m_lastDirection = direction;
+
     if (!m_firstFrameSent) {
         m_firstFrameSent = true;
         emit firstFrame();
@@ -307,21 +322,43 @@ void OcctViewer::OnSelectionChanged(const Handle(AIS_InteractiveContext)& ctx, c
 
 // --- Input ---------------------------------------------------------------------------------------
 
+// While an input handler is set, the left and right buttons belong to it; OCCT only sees the middle
+// button (navigation).
+static Qt::MouseButtons navigationButtons(Qt::MouseButtons buttons, bool handled) {
+    return handled ? (buttons & Qt::MiddleButton) : buttons;
+}
+
 void OcctViewer::mousePressEvent(QMouseEvent* event) {
     QOpenGLWidget::mousePressEvent(event);
+    if (m_input && event->button() != Qt::MiddleButton) {
+        setFocus(Qt::MouseFocusReason);
+        if (m_input->mousePress(event)) {
+            return;
+        }
+    }
     if (event->button() == Qt::MiddleButton && !m_navigating) {
         m_navigating = true;
         pushViewState(); // rotate/pan/zoom drag starts: remember where we were
     }
-    if (UpdateMouseButtons(toPixels(event->position()), toVKeys(event->buttons()),
+    if (UpdateMouseButtons(toPixels(event->position()), toVKeys(navigationButtons(event->buttons(), m_input)),
                            toVFlags(event->modifiers()), false)) {
         updateView();
     }
 }
 
+void OcctViewer::mouseDoubleClickEvent(QMouseEvent* event) {
+    if (m_input && event->button() == Qt::LeftButton && m_input->mouseDoubleClick(event)) {
+        return;
+    }
+    QOpenGLWidget::mouseDoubleClickEvent(event);
+}
+
 void OcctViewer::mouseReleaseEvent(QMouseEvent* event) {
     QOpenGLWidget::mouseReleaseEvent(event);
-    if (UpdateMouseButtons(toPixels(event->position()), toVKeys(event->buttons()),
+    if (m_input && event->button() != Qt::MiddleButton && m_input->mouseRelease(event)) {
+        return;
+    }
+    if (UpdateMouseButtons(toPixels(event->position()), toVKeys(navigationButtons(event->buttons(), m_input)),
                            toVFlags(event->modifiers()), false)) {
         updateView();
     }
@@ -338,7 +375,10 @@ void OcctViewer::mouseReleaseEvent(QMouseEvent* event) {
 
 void OcctViewer::mouseMoveEvent(QMouseEvent* event) {
     QOpenGLWidget::mouseMoveEvent(event);
-    if (UpdateMousePosition(toPixels(event->position()), toVKeys(event->buttons()),
+    if (m_input && !(event->buttons() & Qt::MiddleButton)) {
+        m_input->mouseMove(event);
+    }
+    if (UpdateMousePosition(toPixels(event->position()), toVKeys(navigationButtons(event->buttons(), m_input)),
                             toVFlags(event->modifiers()), false)) {
         updateView();
     }
@@ -416,11 +456,15 @@ void OcctViewer::applyStyle(const Handle(AIS_InteractiveObject)& object) {
 }
 
 bool OcctViewer::isTemporary(const Handle(AIS_InteractiveObject)& object) const {
-    return std::find(m_temporary.begin(), m_temporary.end(), object) != m_temporary.end();
+    return std::find(m_temporary.begin(), m_temporary.end(), object) != m_temporary.end() ||
+           std::find(m_overlays.begin(), m_overlays.end(), object) != m_overlays.end();
 }
 
 void OcctViewer::activateSelection(const Handle(AIS_InteractiveObject)& object) {
     m_context->Deactivate(object);
+    if (!m_pickable) {
+        return;
+    }
     if (!m_pickFaces && !m_pickEdges && !m_pickVertices) {
         m_context->Activate(object, 0); // whole body
         return;
@@ -451,12 +495,14 @@ void OcctViewer::display(const Handle(AIS_InteractiveObject)& object, bool fit) 
 
 void OcctViewer::remove(const Handle(AIS_InteractiveObject)& object) {
     m_context->Remove(object, false);
+    std::erase(m_overlays, object);
     redraw();
 }
 
 void OcctViewer::removeAll() {
     m_context->RemoveAll(false);
     m_temporary.clear();
+    m_overlays.clear();
     redraw();
 }
 
@@ -501,6 +547,83 @@ void OcctViewer::normalTo(const gp_Dir& n) {
     m_view->FitAll(0.08, false);
     m_view->Invalidate();
     redraw();
+}
+
+void OcctViewer::normalTo(const gp_Ax3& plane, bool fit) {
+    pushViewState();
+    const gp_Dir& n = plane.Direction();
+    const gp_Dir& up = plane.YDirection();
+    m_view->SetProj(n.X(), n.Y(), n.Z());
+    m_view->SetUp(up.X(), up.Y(), up.Z());
+    if (fit) {
+        m_view->FitAll(0.08, false);
+    }
+    m_view->Invalidate();
+    redraw();
+}
+
+std::optional<gp_Pnt> OcctViewer::pointOnPlane(const QPointF& pos, const gp_Pln& plane) const {
+    const NCollection_Vec2<int> px = toPixels(pos);
+    double x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0;
+    m_view->ConvertWithProj(px.x(), px.y(), x, y, z, vx, vy, vz);
+    const gp_Vec ray(vx, vy, vz);
+    const gp_Dir& n = plane.Axis().Direction();
+    const double denom = ray.Dot(gp_Vec(n));
+    if (ray.Magnitude() < 1e-12 || std::abs(denom) < 1e-9 * ray.Magnitude()) {
+        return std::nullopt;
+    }
+    const gp_Pnt from(x, y, z);
+    const double t = gp_Vec(from, plane.Location()).Dot(gp_Vec(n)) / denom;
+    return from.Translated(ray * t);
+}
+
+double OcctViewer::pixelSize() const {
+    if (m_view->Window().IsNull()) {
+        return 0.1;
+    }
+    return m_view->Convert(1000) / 1000.0 * devicePixelRatioF();
+}
+
+QPointF OcctViewer::toWidget(const gp_Pnt& p) const {
+    int xp = 0, yp = 0;
+    m_view->Convert(p.X(), p.Y(), p.Z(), xp, yp);
+    const qreal ratio = devicePixelRatioF();
+    return QPointF(xp / ratio, yp / ratio);
+}
+
+void OcctViewer::setModelPickable(bool pickable) {
+    if (pickable == m_pickable) {
+        return;
+    }
+    m_pickable = pickable;
+    if (!pickable) {
+        m_context->ClearDetected(false);
+        m_context->ClearSelected(false);
+    }
+    NCollection_List<Handle(AIS_InteractiveObject)> objects;
+    m_context->DisplayedObjects(objects);
+    for (const Handle(AIS_InteractiveObject)& object : objects) {
+        if (!isTemporary(object)) {
+            activateSelection(object);
+        }
+    }
+    redraw();
+}
+
+void OcctViewer::showOverlay(const Handle(AIS_InteractiveObject)& object, bool alwaysOnTop) {
+    m_context->Display(object, 0, -1, false);
+    m_context->Deactivate(object);
+    m_context->SetZLayer(object, alwaysOnTop ? Graphic3d_ZLayerId_Topmost : Graphic3d_ZLayerId_Top);
+    if (std::find(m_overlays.begin(), m_overlays.end(), object) == m_overlays.end()) {
+        m_overlays.push_back(object);
+    }
+    redraw();
+}
+
+void OcctViewer::updateOverlay(const Handle(AIS_InteractiveObject)& object) {
+    m_context->Redisplay(object, false);
+    m_view->Invalidate();
+    update();
 }
 
 void OcctViewer::setDisplayStyle(DisplayStyle style) {

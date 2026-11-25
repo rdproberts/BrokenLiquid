@@ -8,8 +8,9 @@ add_executable(bl_tests
     test_units.cpp
     test_undo.cpp
     test_measure.cpp
-    test_document.cpp)
-target_link_libraries(bl_tests PRIVATE bl::kernel bl::doc GTest::gtest GTest::gtest_main)
+    test_document.cpp
+    test_sketch_solver.cpp)
+target_link_libraries(bl_tests PRIVATE bl::kernel bl::doc bl::sketch GTest::gtest GTest::gtest_main)
 set_target_properties(bl_tests PROPERTIES AUTOMOC OFF)
 
 # DISCOVERY_MODE PRE_TEST: the exe needs OCCT DLLs next to it, which vcpkg copies post-build.

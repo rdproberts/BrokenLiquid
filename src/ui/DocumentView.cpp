@@ -2,6 +2,8 @@
 
 #include "doc/Document.h"
 #include "ui/ConfirmationCorner.h"
+#include "ui/SketchEditor.h"
+#include "ui/Theme.h"
 #include "ui/ViewHud.h"
 
 #include <AIS_Shape.hxx>
@@ -120,11 +122,34 @@ void DocumentView::sync() {
         }
     }
 
+    // Finished sketches: rebuilt each time (cheap), the one being edited is left to the editor.
+    for (auto& [id, prs] : m_sketches) {
+        m_viewer->remove(prs);
+    }
+    m_sketches.clear();
+    const bool dark = currentTheme() == ThemeKind::Dark;
+    for (const doc::SketchFeature& f : model.sketches) {
+        if (!f.visible || f.id == m_editingSketch) {
+            continue;
+        }
+        Handle(render::SketchPresentation) prs = new render::SketchPresentation(f.plane);
+        prs->setDrawing(inactiveSketchDrawing(f.sketch, dark));
+        m_viewer->showOverlay(prs, false);
+        m_sketches.emplace(f.id, prs);
+    }
+
     if (!m_fitted && !model.bodies.empty() && m_viewer->isGlReady()) {
         m_fitted = true;
         m_viewer->setStandardView(render::StandardView::Isometric);
     }
     m_viewer->redraw();
+}
+
+void DocumentView::setEditingSketch(const QUuid& id) {
+    if (id != m_editingSketch) {
+        m_editingSketch = id;
+        sync();
+    }
 }
 
 QUuid DocumentView::bodyOf(const Handle(AIS_InteractiveObject)& object) const {

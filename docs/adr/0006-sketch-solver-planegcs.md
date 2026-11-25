@@ -1,6 +1,7 @@
 # 0006. Sketch constraint solver: PlaneGCS
 
-- **Status:** Proposed — spike pending (moved to the start of Phase 2)
+- **Status:** Superseded by [0007](0007-sketch-solver-own.md) — not adopted; at the start of Phase 2
+  we took the fallback below (own solver on Eigen) instead of vendoring PlaneGCS
 - **Date:** 2026-11-25
 
 ## Context

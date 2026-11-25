@@ -7,8 +7,19 @@ namespace {
 
 // Cheap structural comparison: did the transaction change anything?
 bool sameModel(const PartModel& a, const PartModel& b) {
-    if (a.units != b.units || a.importCount != b.importCount || a.bodies.size() != b.bodies.size()) {
+    if (a.units != b.units || a.importCount != b.importCount || a.bodies.size() != b.bodies.size() ||
+        a.sketchCount != b.sketchCount || a.sketches.size() != b.sketches.size()) {
         return false;
+    }
+    for (size_t i = 0; i < a.sketches.size(); ++i) {
+        const SketchFeature& x = a.sketches[i];
+        const SketchFeature& y = b.sketches[i];
+        if (x.id != y.id || x.name != y.name || x.visible != y.visible || x.planeName != y.planeName ||
+            x.status != y.status || !(x.sketch == y.sketch) ||
+            !x.plane.Location().IsEqual(y.plane.Location(), 0.0) || !x.plane.Direction().IsEqual(y.plane.Direction(), 0.0) ||
+            !x.plane.XDirection().IsEqual(y.plane.XDirection(), 0.0)) {
+            return false;
+        }
     }
     for (size_t i = 0; i < a.bodies.size(); ++i) {
         const Body& x = a.bodies[i];

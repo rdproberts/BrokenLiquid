@@ -10,4 +10,5 @@ Status. New ADRs copy [`0000-template.md`](0000-template.md) and take the next n
 | [0003](0003-persistent-naming.md) | Persistent naming: generative names from OCCT history | Accepted (spike passed) |
 | [0004](0004-drawing-hlr-edge-mapping.md) | Drawings: OCCT HLR + geometric 2D↔3D edge mapping | Accepted (spike passed) |
 | [0005](0005-assembly-solver.md) | Assemblies: own Levenberg–Marquardt mate solver on Eigen | Accepted (spike passed) |
-| [0006](0006-sketch-solver-planegcs.md) | Sketch solver: PlaneGCS | Proposed (spike pending) |
+| [0006](0006-sketch-solver-planegcs.md) | Sketch solver: PlaneGCS | Superseded by 0007 |
+| [0007](0007-sketch-solver-own.md) | Sketch solver: own minimum-norm Gauss–Newton on Eigen | Accepted (spike passed) |

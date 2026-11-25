@@ -8,6 +8,7 @@
 #include <TopoDS_Shape.hxx>
 #include <V3d_View.hxx>
 #include <V3d_Viewer.hxx>
+#include <gp_Ax3.hxx>
 #include <gp_Pln.hxx>
 
 #include <QColor>
@@ -15,9 +16,22 @@
 #include <QOpenGLWidget>
 #include <QString>
 
+#include <optional>
 #include <vector>
 
 namespace bl::render {
+
+// Takes over the left (and right) mouse button while set, e.g. for the sketch editor. Middle-button
+// navigation and the wheel keep working. Return true from a press/release to swallow it.
+class ViewerInput {
+public:
+    virtual ~ViewerInput() = default;
+    virtual bool mousePress(QMouseEvent* event) = 0;
+    virtual void mouseMove(QMouseEvent* event) = 0;
+    virtual bool mouseRelease(QMouseEvent* event) = 0;
+    virtual bool mouseDoubleClick(QMouseEvent* event) = 0;
+    virtual void viewChanged() {} // zoom or orientation changed (pixel-sized graphics need a rebuild)
+};
 
 // Display styles matching the familiar CAD set (see PLAN.md 6.10).
 enum class DisplayStyle { ShadedWithEdges, Shaded, HiddenLinesRemoved, HiddenLinesVisible, Wireframe };
@@ -50,6 +64,24 @@ public:
     void setStandardView(StandardView v);
     // Looks straight at a plane with the given outward normal.
     void normalTo(const gp_Dir& normal);
+    // Looks straight at a plane with its Y direction up (sketch mode). `fit`: zoom to fit too.
+    void normalTo(const gp_Ax3& plane, bool fit);
+
+    // --- Input and coordinates ----------------------------------------------------------------------
+    void setInput(ViewerInput* input) { m_input = input; }
+    ViewerInput* input() const { return m_input; }
+    // Point under a widget position (logical pixels) on a plane; nothing if the view looks along it.
+    std::optional<gp_Pnt> pointOnPlane(const QPointF& pos, const gp_Pln& plane) const;
+    // Model units (mm) per logical pixel.
+    double pixelSize() const;
+    // Widget position (logical pixels) of a model point.
+    QPointF toWidget(const gp_Pnt& p) const;
+    // false: model objects cannot be picked or hover-highlighted at all (sketch mode).
+    void setModelPickable(bool pickable);
+
+    // --- Overlays (sketch graphics): displayed above the model, never selectable -----------------
+    void showOverlay(const Handle(AIS_InteractiveObject)& object, bool alwaysOnTop);
+    void updateOverlay(const Handle(AIS_InteractiveObject)& object);
 
     // Back to the previous orientation/zoom (View HUD "Previous View"). Returns false if none.
     bool previousView();
@@ -103,6 +135,7 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void leaveEvent(QEvent* event) override;
 
@@ -127,6 +160,11 @@ private:
     DisplayStyle m_style = DisplayStyle::ShadedWithEdges;
     std::vector<Handle(Graphic3d_Camera)> m_viewHistory;
     std::vector<Handle(AIS_InteractiveObject)> m_temporary;
+    std::vector<Handle(AIS_InteractiveObject)> m_overlays;
+    ViewerInput* m_input = nullptr;
+    bool m_pickable = true;
+    double m_lastScale = 0.0;
+    gp_Dir m_lastDirection;
     Handle(Graphic3d_ClipPlane) m_section;
     bool m_pickFaces = true, m_pickEdges = true, m_pickVertices = true;
     bool m_zoomAreaArmed = false;

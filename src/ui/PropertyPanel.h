@@ -111,6 +111,8 @@ public:
     // Starts a fresh panel for a command. `confirm`: show OK + Cancel; otherwise only Close.
     void begin(const QString& title, const QString& iconName, bool confirm);
     void clear();
+    // Removes the groups and message but keeps the header (for commands that rebuild their panel).
+    void clearContent();
     bool isOpen() const { return m_open; }
 
     void setMessage(const QString& text);

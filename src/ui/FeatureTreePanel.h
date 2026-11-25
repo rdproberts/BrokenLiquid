@@ -27,6 +27,7 @@ public:
 
     QList<QUuid> selectedBodies() const;
     void setSelectedBodies(const QList<QUuid>& ids); // from the graphics area; emits nothing
+    QUuid selectedSketch() const; // the first selected sketch, if any
 
 signals:
     void itemActivated(const QString& id);
@@ -35,6 +36,10 @@ signals:
     void visibilityRequested(const QList<QUuid>& ids, bool visible);
     void colorRequested(const QList<QUuid>& ids);
     void deleteRequested(const QList<QUuid>& ids);
+    void sketchEditRequested(const QUuid& id);
+    void sketchRenameRequested(const QUuid& id, const QString& name);
+    void sketchVisibilityRequested(const QUuid& id, bool visible);
+    void sketchDeleteRequested(const QUuid& id);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -46,6 +51,7 @@ private:
     QTreeWidgetItem* addNode(QTreeWidgetItem* parent, const QString& id, const QString& text,
                              const QString& iconName);
     QUuid bodyId(const QTreeWidgetItem* item) const;
+    QUuid sketchId(const QTreeWidgetItem* item) const;
 
     QPointer<doc::Document> m_document;
     QLineEdit* m_filter;
@@ -54,6 +60,7 @@ private:
     QTreeWidgetItem* m_root = nullptr;
     QTreeWidgetItem* m_bodies = nullptr;
     QTreeWidgetItem* m_rollback = nullptr;
+    QList<QTreeWidgetItem*> m_sketchItems;
     bool m_updating = false;
 };
 

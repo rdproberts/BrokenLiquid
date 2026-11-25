@@ -17,6 +17,15 @@ target_link_libraries(bl_core
     PRIVATE $<$<PLATFORM_ID:Windows>:dbghelp>)
 set_target_properties(bl_core PROPERTIES AUTOMOC OFF)
 
+# --- sketch: 2D sketch model and constraint solver (Qt- and OCCT-free) --------------------------------
+add_library(bl_sketch STATIC
+    sketch/Sketch.cpp        sketch/Sketch.h
+    sketch/Solver.cpp        sketch/Solver.h
+    sketch/Geometry.cpp      sketch/Geometry.h)
+add_library(bl::sketch ALIAS bl_sketch)
+target_link_libraries(bl_sketch PUBLIC bl::core Eigen3::Eigen)
+set_target_properties(bl_sketch PROPERTIES AUTOMOC OFF)
+
 # --- kernel: OCCT services (import/export, later naming + shape cache) ----------------------------
 add_library(bl_kernel STATIC
     kernel/StepIO.cpp
@@ -31,13 +40,14 @@ add_library(bl_doc STATIC
     doc/Document.cpp         doc/Document.h
     doc/PartModel.h)
 add_library(bl::doc ALIAS bl_doc)
-target_link_libraries(bl_doc PUBLIC bl::kernel Qt6::Core Qt6::Gui)
+target_link_libraries(bl_doc PUBLIC bl::kernel bl::sketch Qt6::Core Qt6::Gui)
 
 # --- render: OCCT viewer inside Qt ------------------------------------------------------------------
 add_library(bl_render STATIC
     render/OcctViewer.cpp
     render/NativeWindow.cpp  render/NativeWindow.h
-    render/OcctViewer.h)
+    render/OcctViewer.h
+    render/SketchPresentation.cpp render/SketchPresentation.h)
 add_library(bl::render ALIAS bl_render)
 target_link_libraries(bl_render
     PUBLIC  bl::kernel bl::doc Qt6::Widgets Qt6::OpenGLWidgets
@@ -58,6 +68,7 @@ add_library(bl_ui STATIC
     ui/DocumentView.cpp      ui/DocumentView.h
     ui/MeasureCommand.cpp    ui/MeasureCommand.h
     ui/SectionCommand.cpp    ui/SectionCommand.h
+    ui/SketchEditor.cpp      ui/SketchEditor.h
     ui/HomePage.cpp          ui/HomePage.h
     ui/OptionsDialog.cpp     ui/OptionsDialog.h
     ui/MainWindow.cpp        ui/MainWindow.h)

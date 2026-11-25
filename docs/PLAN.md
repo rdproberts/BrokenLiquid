@@ -268,8 +268,7 @@ This history-based, parent/child model is the core "building logic" BL reproduce
 |---|---|---|
 | Open CASCADE Technology 8 | B-rep kernel, visualisation, STEP/IGES, HLR | LGPL-2.1 with OCCT exception |
 | Qt 6 (Base, Gui, Widgets, OpenGLWidgets, Svg, PrintSupport) | UI, PDF/SVG output, printing | LGPL-3 (dynamic linking) |
-| PlaneGCS (from FreeCAD) | 2D sketch constraint solver (DogLeg, LM, BFGS) | LGPL-2.1-or-later |
-| Eigen 3 | Linear algebra for solvers | MPL-2.0 |
+| Eigen 3 | Linear algebra for the sketch and mate solvers (own code, ADR 0005/0007) | MPL-2.0 |
 | pybind11 / nanobind | Python bindings | BSD-style |
 | CPython 3.13+ (embeddable) | Scripting runtime | PSF |
 | nlohmann/json | Document model serialisation | MIT |
@@ -316,7 +315,7 @@ processes later (FEA solvers, mesh tools).
 │  SKETCH       │  FEATURES      │  ASSEMBLY       │  DRAWING              │
 │  entities,    │  extrude,      │  components,    │  sheets, views,       │
 │  constraints, │  fillet, ...   │  mates, solver, │  HLR projection,      │
-│  PlaneGCS     │  (OCCT ops)    │  interference   │  annotations, BOM     │
+│  own solver   │  (OCCT ops)    │  interference   │  annotations, BOM     │
 ├───────────────┴────────────────┴─────────────────┴───────────────────────┤
 │  KERNEL SERVICES   OCCT wrappers · persistent naming · shape cache ·     │
 │                    healing · tolerance policy                            │
@@ -340,7 +339,7 @@ broken-liquid/
 ├─ src/
 │  ├─ core/        ids (UUID), units, math, settings, logging, error types
 │  ├─ kernel/      OCCT wrappers, persistent naming, shape cache, healing
-│  ├─ sketch/      entities, constraints, PlaneGCS adapter, profile/region finder
+│  ├─ sketch/      entities, constraints, solver (ADR 0007), profile/region finder
 │  ├─ features/    one file per feature (Extrude, Revolve, Fillet, ...)
 │  ├─ part/        PartDocument, feature graph, regeneration, equations
 │  ├─ assembly/    AssemblyDocument, components, mates, mate solver
@@ -438,7 +437,7 @@ system protects the whole product.
 | **Relations** | Horizontal, Vertical, Coincident, Midpoint, Collinear, Parallel, Perpendicular, Tangent, Concentric, Equal, Symmetric, Fix, Merge |
 | **Dimensions** | Smart Dimension: linear (horizontal/vertical/aligned), angular, radius, diameter, arc length; driving vs driven; double-click to edit; values accept equations and units ("25.4mm", "1in") |
 | **Inference** | Snaps (endpoint, midpoint, centre, quadrant, intersection, on-curve), inference lines, automatic relations while drawing (horizontal/vertical/coincident/tangent) |
-| **Solver** | PlaneGCS (LGPL). Degrees-of-freedom analysis drives status colours and the status-bar text: *Under Defined / Fully Defined / Over Defined* |
+| **Solver** | Own minimum-norm Gauss–Newton on Eigen ([ADR 0007](adr/0007-sketch-solver-own.md)). Degrees-of-freedom analysis drives status colours and the status-bar text: *Under Defined / Fully Defined / Over Defined* |
 | **Profiles** | Region finder builds closed loops and faces (with holes) from the sketch, so the user can pick regions for features (contour selection) |
 
 ### 6.7 Part features in v1
@@ -696,7 +695,7 @@ Shown after the splash unless a file was opened from Explorer.
 | Rename in tree | F2 |
 | New / Open / Save / Undo / Redo | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Z / Ctrl+Y |
 | Next document | Ctrl+Tab |
-| Sketch-mode single keys | L line, C circle, R rectangle, A arc, T trim, O offset, X construction (final map fixed in Phase 2) |
+| Sketch-mode single keys | L line, C circle, R rectangle, A arc, P point, D Smart Dimension, X construction; T trim and O offset when those tools land. Enter/Esc end the current chain or value box, never the sketch |
 
 ### 7.7 Options
 

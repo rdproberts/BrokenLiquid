@@ -323,6 +323,19 @@ void PropertyPanel::begin(const QString& title, const QString& iconName, bool co
     m_idle->hide();
 }
 
+void PropertyPanel::clearContent() {
+    while (m_contentLayout->count() > 1) {
+        QLayoutItem* item = m_contentLayout->takeAt(0);
+        if (QWidget* w = item->widget()) {
+            w->hide();
+            w->deleteLater();
+        }
+        delete item;
+    }
+    m_message->clear();
+    m_message->hide();
+}
+
 void PropertyPanel::clear() {
     m_open = false;
     while (m_contentLayout->count() > 1) {

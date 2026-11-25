@@ -19,6 +19,7 @@
 #include "ui/PropertyPanel.h"
 #include "ui/ResourcePane.h"
 #include "ui/SectionCommand.h"
+#include "ui/SketchEditor.h"
 #include "ui/ViewHud.h"
 
 #include <BRepAdaptor_Surface.hxx>
@@ -80,7 +81,20 @@ const char* const kDocumentCommands[] = {
     "view.back", "view.left", "view.right", "view.top", "view.bottom", "view.isometric", "view.dimetric",
     "view.trimetric", "view.normalTo", "view.style.shadedEdges", "view.style.shaded", "view.style.hlr",
     "view.style.hlv", "view.style.wireframe", "evaluate.measure", "evaluate.massProps", "evaluate.check",
-    "window.next"};
+    "window.next", "sketch.sketch"};
+
+// Sketch tools: command id -> tool (enabled while a sketch is open).
+struct SketchToolDef {
+    const char* id;
+    SketchEditor::Tool tool;
+};
+const SketchToolDef kSketchTools[] = {
+    {"sketch.dimension", SketchEditor::Tool::Dimension},   {"sketch.line", SketchEditor::Tool::Line},
+    {"sketch.centerline", SketchEditor::Tool::Centerline}, {"sketch.rectangle", SketchEditor::Tool::Rectangle},
+    {"sketch.centerRectangle", SketchEditor::Tool::CenterRectangle}, {"sketch.circle", SketchEditor::Tool::Circle},
+    {"sketch.arc", SketchEditor::Tool::Arc},               {"sketch.tangentArc", SketchEditor::Tool::TangentArc},
+    {"sketch.point", SketchEditor::Tool::Point},
+};
 
 Units defaultUnits() {
     const Settings& s = Settings::global();
@@ -158,12 +172,28 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), m_registry(std::m
         connect(shortcut, &QShortcut::activated, this, std::move(fn));
         m_commandKeys.push_back(shortcut);
     };
-    key(QKeySequence(Qt::Key_Return), [this] { finishCommand(true); });
-    key(QKeySequence(Qt::Key_Enter), [this] { finishCommand(true); });
-    key(QKeySequence(Qt::Key_Escape), [this] { finishCommand(false); });
+    auto enter = [this] {
+        if (!(m_command && m_command->enterPressed())) {
+            finishCommand(true);
+        }
+    };
+    key(QKeySequence(Qt::Key_Return), enter);
+    key(QKeySequence(Qt::Key_Enter), enter);
+    key(QKeySequence(Qt::Key_Escape), [this] {
+        if (!(m_command && m_command->escapePressed())) {
+            finishCommand(false);
+        }
+    });
     key(QKeySequence(Qt::Key_D), [this] {
-        if (m_activeView) {
+        if (SketchEditor* editor = sketchEditor()) {
+            editor->setTool(SketchEditor::Tool::Dimension); // D is Smart Dimension while sketching
+        } else if (m_activeView) {
             m_activeView->corner()->moveToCursor();
+        }
+    });
+    key(QKeySequence(QKeySequence::Delete), [this] {
+        if (m_command) {
+            m_command->deletePressed();
         }
     });
 
@@ -259,6 +289,10 @@ void MainWindow::registerCommands() {
 
     // Edit / tools
     command("edit.undo", tr("Undo"), "undo", QKeySequence::Undo, tr("Undo the last change"), [this] {
+        if (m_command && m_command->handlesUndo()) {
+            m_command->undo();
+            return;
+        }
         finishCommand(false);
         if (doc::Document* d = activeDocument(); d && d->canUndo()) {
             const QString label = d->undoLabel();
@@ -268,6 +302,10 @@ void MainWindow::registerCommands() {
     });
     command("edit.redo", tr("Redo"), "redo", QKeySequence(Qt::CTRL | Qt::Key_Y), tr("Redo the last undone change"),
             [this] {
+                if (m_command && m_command->handlesUndo()) {
+                    m_command->redo();
+                    return;
+                }
                 finishCommand(false);
                 if (doc::Document* d = activeDocument(); d && d->canRedo()) {
                     const QString label = d->redoLabel();
@@ -407,34 +445,70 @@ void MainWindow::registerCommands() {
     }
 
     // Sketch (Phase 2)
+    QAction* sketchAction = command("sketch.sketch", tr("Sketch"), "sketch", QKeySequence(),
+                                    tr("Sketch on a plane or flat face (or a selected sketch); exits the open sketch"),
+                                    [this] { startSketch(); });
+    sketchAction->setCheckable(true);
     const struct {
         const char* id;
         QString label;
         const char* icon;
-    } sketch[] = {
-        {"sketch.sketch", tr("Sketch"), "sketch"},
-        {"sketch.dimension", tr("Smart Dimension"), "smart-dimension"},
-        {"sketch.line", tr("Line"), "line"},
-        {"sketch.centerline", tr("Centerline"), "centerline"},
-        {"sketch.rectangle", tr("Corner Rectangle"), "rectangle"},
-        {"sketch.centerRectangle", tr("Center Rectangle"), "center-rectangle"},
-        {"sketch.slot", tr("Straight Slot"), "slot"},
-        {"sketch.circle", tr("Circle"), "circle"},
-        {"sketch.arc", tr("Centerpoint Arc"), "arc"},
-        {"sketch.tangentArc", tr("Tangent Arc"), "tangent-arc"},
-        {"sketch.polygon", tr("Polygon"), "polygon"},
-        {"sketch.point", tr("Point"), "sketch-point"},
-        {"sketch.fillet", tr("Sketch Fillet"), "sketch-fillet"},
-        {"sketch.offset", tr("Offset Entities"), "offset"},
-        {"sketch.convert", tr("Convert Entities"), "convert"},
-        {"sketch.trim", tr("Trim Entities"), "trim"},
-        {"sketch.extend", tr("Extend Entities"), "extend"},
-        {"sketch.mirror", tr("Mirror Entities"), "sketch-mirror"},
-        {"sketch.relation", tr("Add Relation"), "relation"},
-        {"sketch.construction", tr("Construction Geometry"), "construction"},
+        QKeySequence key;
+        QString tip;
+    } tools[] = {
+        {"sketch.dimension", tr("Smart Dimension"), "smart-dimension", QKeySequence(),
+         tr("Dimension one or two entities; the type follows what you pick (D)")},
+        {"sketch.line", tr("Line"), "line", QKeySequence(Qt::Key_L), tr("Draw lines, click by click (L)")},
+        {"sketch.centerline", tr("Centerline"), "centerline", QKeySequence(), tr("Draw construction lines")},
+        {"sketch.rectangle", tr("Corner Rectangle"), "rectangle", QKeySequence(Qt::Key_R),
+         tr("Rectangle from two opposite corners (R)")},
+        {"sketch.centerRectangle", tr("Center Rectangle"), "center-rectangle", QKeySequence(),
+         tr("Rectangle from its centre and a corner")},
+        {"sketch.circle", tr("Circle"), "circle", QKeySequence(Qt::Key_C), tr("Circle from its centre and radius (C)")},
+        {"sketch.arc", tr("Centerpoint Arc"), "arc", QKeySequence(Qt::Key_A), tr("Arc from centre, start and end (A)")},
+        {"sketch.tangentArc", tr("Tangent Arc"), "tangent-arc", QKeySequence(),
+         tr("Arc tangent to the end of a line or arc")},
+        {"sketch.point", tr("Point"), "sketch-point", QKeySequence(Qt::Key_P), tr("Sketch point (P)")},
     };
-    for (const auto& s : sketch) {
-        planned(s.id, s.label, "Phase 2 (Sketcher)", s.icon);
+    for (const auto& t : tools) {
+        SketchEditor::Tool tool = SketchEditor::Tool::Select;
+        for (const SketchToolDef& def : kSketchTools) {
+            if (qstrcmp(def.id, t.id) == 0) {
+                tool = def.tool;
+            }
+        }
+        QAction* a = command(t.id, t.label, t.icon, t.key, t.tip, [this, tool] {
+            if (SketchEditor* editor = sketchEditor()) {
+                editor->setTool(editor->tool() == tool ? SketchEditor::Tool::Select : tool);
+            }
+        });
+        a->setCheckable(true);
+    }
+    command("sketch.relation", tr("Add Relation"), "relation", QKeySequence(),
+            tr("Select sketch entities to see their relations and add new ones"), [this] {
+                if (SketchEditor* editor = sketchEditor()) {
+                    editor->setTool(SketchEditor::Tool::Select);
+                    showStatus(tr("Select the entities to relate; the Property Panel lists the relations that fit."));
+                }
+            });
+    command("sketch.construction", tr("Construction Geometry"), "construction", QKeySequence(Qt::Key_X),
+            tr("Turn the selected sketch curves into construction geometry, or back (X)"), [this] {
+                if (SketchEditor* editor = sketchEditor()) {
+                    editor->toggleConstruction();
+                }
+            });
+    const struct {
+        const char* id;
+        QString label;
+        const char* icon;
+    } later[] = {
+        {"sketch.slot", tr("Straight Slot"), "slot"},         {"sketch.polygon", tr("Polygon"), "polygon"},
+        {"sketch.fillet", tr("Sketch Fillet"), "sketch-fillet"}, {"sketch.offset", tr("Offset Entities"), "offset"},
+        {"sketch.convert", tr("Convert Entities"), "convert"}, {"sketch.trim", tr("Trim Entities"), "trim"},
+        {"sketch.extend", tr("Extend Entities"), "extend"},   {"sketch.mirror", tr("Mirror Entities"), "sketch-mirror"},
+    };
+    for (const auto& s : later) {
+        planned(s.id, s.label, "Phase 2 (sketch tools, next step)", s.icon);
     }
 
     // Evaluate
@@ -585,6 +659,7 @@ void MainWindow::buildCommandBar() {
     m_commandBar->addGroup(features, {"features.combine", "features.equations", "insert.body"});
 
     const int sketch = m_commandBar->addTab(tr("Sketch"));
+    m_sketchTab = sketch;
     m_commandBar->addGroup(sketch, {"sketch.sketch", "sketch.dimension"});
     m_commandBar->addFlyout(sketch, tr("Line"), {"sketch.line", "sketch.centerline"});
     m_commandBar->addFlyout(sketch, tr("Rectangle"), {"sketch.rectangle", "sketch.centerRectangle"});
@@ -659,6 +734,10 @@ void MainWindow::buildDocks() {
     connect(m_tree, &FeatureTreePanel::visibilityRequested, this, &MainWindow::setBodiesVisible);
     connect(m_tree, &FeatureTreePanel::colorRequested, this, &MainWindow::recolorBodies);
     connect(m_tree, &FeatureTreePanel::deleteRequested, this, &MainWindow::deleteBodies);
+    connect(m_tree, &FeatureTreePanel::sketchEditRequested, this, &MainWindow::editSketch);
+    connect(m_tree, &FeatureTreePanel::sketchRenameRequested, this, &MainWindow::renameSketch);
+    connect(m_tree, &FeatureTreePanel::sketchVisibilityRequested, this, &MainWindow::setSketchVisible);
+    connect(m_tree, &FeatureTreePanel::sketchDeleteRequested, this, &MainWindow::deleteSketch);
 
     auto* left = new QDockWidget(tr("Feature Tree"), this);
     left->setObjectName(QStringLiteral("ManagerDock"));
@@ -720,6 +799,10 @@ void MainWindow::setTheme(ThemeKind kind) {
     for (DocumentView* view : views()) {
         view->viewer()->setBackgroundGradient(c.viewportTop, c.viewportBottom);
         view->hud()->update();
+        view->refreshSketches();
+    }
+    if (m_command) {
+        m_command->unitsChanged(); // redraws sketch graphics in the new colours
     }
     if (QAction* a = m_registry->action(kind == ThemeKind::Dark ? QStringLiteral("view.theme.dark")
                                                                 : QStringLiteral("view.theme.light"))) {
@@ -806,7 +889,7 @@ bool MainWindow::closeDocument(int index) {
         }
     }
     if (view == m_activeView) {
-        finishCommand(false);
+        finishCommand(false, true);
     }
     m_documents->removeTab(index);
     view->deleteLater();
@@ -818,7 +901,7 @@ bool MainWindow::closeDocument(int index) {
 
 void MainWindow::setActiveView(DocumentView* view) {
     if (m_command && view != m_activeView) {
-        finishCommand(false);
+        finishCommand(m_command->keepOnInterrupt(), true);
     }
     for (const QMetaObject::Connection& c : m_activeConnections) {
         disconnect(c);
@@ -863,10 +946,17 @@ void MainWindow::updateDocumentState() {
     }
     QAction* undo = m_registry->action(QStringLiteral("edit.undo"));
     QAction* redo = m_registry->action(QStringLiteral("edit.redo"));
-    undo->setEnabled(d && d->canUndo());
-    redo->setEnabled(d && d->canRedo());
-    undo->setText(d && d->canUndo() ? tr("Undo %1").arg(d->undoLabel()) : tr("Undo"));
-    redo->setText(d && d->canRedo() ? tr("Redo %1").arg(d->redoLabel()) : tr("Redo"));
+    if (m_command && m_command->handlesUndo()) {
+        undo->setEnabled(m_command->canUndo());
+        redo->setEnabled(m_command->canRedo());
+        undo->setText(tr("Undo (%1)").arg(m_command->title()));
+        redo->setText(tr("Redo (%1)").arg(m_command->title()));
+    } else {
+        undo->setEnabled(d && d->canUndo());
+        redo->setEnabled(d && d->canRedo());
+        undo->setText(d && d->canUndo() ? tr("Undo %1").arg(d->undoLabel()) : tr("Undo"));
+        redo->setText(d && d->canRedo() ? tr("Redo %1").arg(d->redoLabel()) : tr("Redo"));
+    }
     undo->setToolTip(undo->text() + QStringLiteral(" (Ctrl+Z)"));
     redo->setToolTip(redo->text() + QStringLiteral(" (Ctrl+Y)"));
 
@@ -885,11 +975,12 @@ void MainWindow::updateDocumentState() {
             }
         }
         const int bodies = static_cast<int>(m_activeView->document()->model().bodies.size());
-        m_statusState->setText(tr("%n body(s)", nullptr, bodies));
+        m_statusState->setText(m_stateText.isEmpty() ? tr("%n body(s)", nullptr, bodies) : m_stateText);
     } else {
         m_registry->action(QStringLiteral("view.section"))->setChecked(false);
         m_statusState->setText(tr("No document"));
     }
+    updateSketchActions();
 }
 
 void MainWindow::openFile(const QString& path) {
@@ -1003,10 +1094,19 @@ void MainWindow::startCommand(std::unique_ptr<InteractiveCommand> command) {
         showStatus(tr("Open or create a part first."));
         return;
     }
-    finishCommand(false);
+    if (m_command) {
+        finishCommand(m_command->keepOnInterrupt());
+        if (m_command) {
+            return; // the running command could not finish (needs more input)
+        }
+    }
     m_command = std::move(command);
     InteractiveCommand* cmd = m_command.get();
     connect(cmd, &InteractiveCommand::finishRequested, this, [this] { finishCommand(true); }, Qt::QueuedConnection);
+    connect(cmd, &InteractiveCommand::stateChanged, this, &MainWindow::updateDocumentState);
+    if (sketchEditor() && m_sketchTab >= 0) {
+        m_commandBar->setCurrentTab(m_sketchTab);
+    }
 
     m_panel->begin(cmd->title(), cmd->iconName(), cmd->confirms());
     m_managerTabs->setCurrentWidget(m_panel);
@@ -1018,8 +1118,11 @@ void MainWindow::startCommand(std::unique_ptr<InteractiveCommand> command) {
     spdlog::info("command started: {}", cmd->id().toStdString());
 }
 
-void MainWindow::finishCommand(bool accept) {
+void MainWindow::finishCommand(bool accept, bool force) {
     if (!m_command) {
+        return;
+    }
+    if (!accept && !force && !m_command->confirmCancel()) {
         return;
     }
     // Commit a value still being typed (fields apply on focus-out).
@@ -1051,6 +1154,122 @@ void MainWindow::finishCommand(bool accept) {
     updateSelectionStatus();
 }
 
+// --- Sketches ----------------------------------------------------------------------------------------------
+
+SketchEditor* MainWindow::sketchEditor() const { return dynamic_cast<SketchEditor*>(m_command.get()); }
+
+void MainWindow::setStateText(const QString& text) {
+    m_stateText = text;
+    updateDocumentState();
+}
+
+void MainWindow::updateSketchActions() {
+    SketchEditor* editor = sketchEditor();
+    for (const SketchToolDef& def : kSketchTools) {
+        if (QAction* a = m_registry->action(QString::fromLatin1(def.id))) {
+            a->setEnabled(editor != nullptr);
+            a->setChecked(editor && editor->tool() == def.tool);
+        }
+    }
+    for (const char* id : {"sketch.relation", "sketch.construction"}) {
+        if (QAction* a = m_registry->action(QString::fromLatin1(id))) {
+            a->setEnabled(editor != nullptr);
+        }
+    }
+    if (QAction* a = m_registry->action(QStringLiteral("sketch.sketch"))) {
+        a->setChecked(editor != nullptr);
+        a->setText(editor ? tr("Exit Sketch") : tr("Sketch"));
+    }
+}
+
+void MainWindow::startSketch() {
+    if (sketchEditor()) {
+        finishCommand(true); // the Sketch button doubles as Exit Sketch
+        return;
+    }
+    if (!activeDocument() || !m_activeView) {
+        showStatus(tr("Open or create a part first."));
+        return;
+    }
+    if (!m_command) {
+        if (const QUuid id = m_tree->selectedSketch(); !id.isNull()) {
+            editSketch(id);
+            return;
+        }
+        for (const auto& pick : m_activeView->viewer()->selection()) {
+            if (const auto plane = planarFace(pick.shape)) {
+                const doc::Body* body = activeDocument()->model().body(m_activeView->bodyOf(pick.object));
+                startSketchOn(facePlane(*plane), body ? tr("Face of %1").arg(body->name) : tr("Face"));
+                return;
+            }
+        }
+    }
+    startCommand(std::make_unique<SketchPlaneCommand>(
+        *this, [this](const gp_Ax3& plane, const QString& name) { startSketchOn(plane, name); }));
+}
+
+void MainWindow::startSketchOn(const gp_Ax3& plane, const QString& planeName) {
+    doc::Document* d = activeDocument();
+    if (!d) {
+        return;
+    }
+    doc::SketchFeature feature;
+    feature.name = tr("Sketch%1").arg(d->model().sketchCount + 1);
+    feature.planeName = planeName;
+    feature.plane = plane;
+    startCommand(std::make_unique<SketchEditor>(*this, std::move(feature), true));
+}
+
+void MainWindow::editSketch(const QUuid& id) {
+    doc::Document* d = activeDocument();
+    const doc::SketchFeature* feature = d ? d->model().sketch(id) : nullptr;
+    if (!feature) {
+        return;
+    }
+    if (SketchEditor* editor = sketchEditor(); editor && editor->sketchId() == id) {
+        return;
+    }
+    startCommand(std::make_unique<SketchEditor>(*this, *feature, false));
+}
+
+void MainWindow::renameSketch(const QUuid& id, const QString& name) {
+    if (doc::Document* d = activeDocument()) {
+        d->transact(tr("Rename Sketch"), [&](doc::PartModel& m) {
+            doc::SketchFeature* s = m.sketch(id);
+            if (!s) {
+                return false;
+            }
+            s->name = name;
+            return true;
+        });
+    }
+}
+
+void MainWindow::setSketchVisible(const QUuid& id, bool visible) {
+    if (doc::Document* d = activeDocument()) {
+        d->transact(visible ? tr("Show Sketch") : tr("Hide Sketch"), [&](doc::PartModel& m) {
+            doc::SketchFeature* s = m.sketch(id);
+            if (!s) {
+                return false;
+            }
+            s->visible = visible;
+            return true;
+        });
+    }
+}
+
+void MainWindow::deleteSketch(const QUuid& id) {
+    if (SketchEditor* editor = sketchEditor(); editor && editor->sketchId() == id) {
+        showStatus(tr("Exit the sketch before deleting it."));
+        return;
+    }
+    if (doc::Document* d = activeDocument()) {
+        d->transact(tr("Delete Sketch"), [&](doc::PartModel& m) {
+            return std::erase_if(m.sketches, [&id](const doc::SketchFeature& s) { return s.id == id; }) > 0;
+        });
+    }
+}
+
 void MainWindow::toggleSection() {
     if (!m_activeView) {
         return;
@@ -1058,7 +1277,7 @@ void MainWindow::toggleSection() {
     if (m_command && m_command->id() == QLatin1String("view.section")) {
         finishCommand(false);
     } else if (m_activeView->section()) {
-        finishCommand(false);
+        finishCommand(m_command && m_command->keepOnInterrupt());
         m_activeView->setSection(std::nullopt);
         showStatus(tr("Section view off."));
     } else {
@@ -1359,7 +1578,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         event->ignore();
         return;
     }
-    finishCommand(false);
+    finishCommand(false, true);
     saveLayout();
     Settings::global().save();
     event->accept();
@@ -1411,6 +1630,69 @@ void MainWindow::runDemo(const QString& demo) {
         }
     } else if (demo == QLatin1String("options")) {
         QTimer::singleShot(0, this, [this] { showOptions(true); });
+    } else if (demo.startsWith(QLatin1String("sketch"))) {
+        // Draws an L bracket profile with the tools as a user would (clicks in sketch coordinates),
+        // dimensions part of it and selects the bottom line (relations in the Property Panel).
+        startSketchOn(referencePlane(0), referencePlaneName(0));
+        SketchEditor* e = sketchEditor();
+        if (!e) {
+            return;
+        }
+        using Tool = SketchEditor::Tool;
+        using Clicks = std::initializer_list<std::pair<double, double>>;
+        auto clicks = [e](Clicks points) {
+            for (const auto& [u, v] : points) {
+                e->clickAt(u, v);
+            }
+        };
+        // Lines to the fillet, a tangent arc, then lines back to the origin (the line leaving
+        // the arc picks up tangency, the closing one its vertical relation).
+        e->setTool(Tool::Line);
+        clicks({{0, 0}, {60, 0}, {60, 10}, {15, 10}});
+        e->setTool(Tool::TangentArc);
+        clicks({{15, 10}, {10, 15}});
+        e->setTool(Tool::Line);
+        clicks({{10, 15}, {10, 40}, {0, 40}, {0, 0}});
+        e->setTool(Tool::Circle);
+        clicks({{40, 5}, {42.5, 5}});
+        // Smart Dimension: pick, place, accept the measured value.
+        e->setTool(Tool::Dimension);
+        const Clicks dimensions[] = {
+            {{30, 0}, {30, -9}},          // overall width 60
+            {{60, 5}, {69, 5}},           // end height 10
+            {{0, 20}, {-9, 20}},          // overall height 40
+            {{5, 40}, {5, 49}},           // leg width 10
+            {{11.4645, 11.4645}, {6, 6}}, // fillet R5
+            {{42.5, 5}, {52, 16}},        // hole diameter 5
+            {{40, 5}, {0, 0}, {20, -19}}, // hole from the origin, horizontal 40
+            {{40, 5}, {50, 0}, {47, 2.5}}, // hole above the bottom edge 5
+        };
+        if (demo != QLatin1String("sketch-partial")) {
+            for (const Clicks& dim : dimensions) {
+                clicks(dim);
+                e->escapePressed(); // close the value box, keeping the value
+            }
+        }
+        e->setTool(Tool::Select);
+        if (demo == QLatin1String("sketch-exit")) {
+            finishCommand(true);
+            if (m_activeView) {
+                m_activeView->viewer()->setStandardView(render::StandardView::Isometric);
+            }
+        } else {
+            const sketch::Sketch& s = e->sketch();
+            for (const sketch::Curve& c : s.curves()) {
+                const sketch::Point* a = s.point(c.p1);
+                const sketch::Point* b = s.point(c.p2);
+                if (c.type == sketch::CurveType::Line && a && b && std::abs(a->y) < 1e-6 && std::abs(b->y) < 1e-6) {
+                    e->select({c.id});
+                    break;
+                }
+            }
+            const sketch::SolveResult& r = e->solveResult();
+            spdlog::info("demo sketch: {} curves, {} constraints, {}, DOF {}", s.curves().size(), s.constraints().size(),
+                         sketch::statusName(r.status), r.dof);
+        }
     }
 }
 
@@ -1422,8 +1704,12 @@ void MainWindow::runSmokeTest(const QString& pngPath, const QString& demo) {
         }
         *finished = true;
         QTimer::singleShot(400, this, [this, pngPath, demo] {
-            runDemo(demo);
-            QTimer::singleShot(900, this, [this, pngPath] {
+            if (demo.startsWith(QLatin1String("sketch")) && !m_activeView) {
+                newPart(); // sketch demos start from an empty part
+            }
+            const int settle = demo.startsWith(QLatin1String("sketch")) ? 700 : 0;
+            QTimer::singleShot(settle, this, [this, demo] { runDemo(demo); });
+            QTimer::singleShot(settle + 900, this, [this, pngPath] {
                 QWidget* target = QApplication::activeModalWidget() ? QApplication::activeModalWidget() : this;
                 const QImage image = grab().toImage();
                 bool ok = !image.isNull() && image.save(pngPath);
