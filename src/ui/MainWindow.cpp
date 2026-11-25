@@ -4,25 +4,37 @@
 #include "core/Log.h"
 #include "core/Paths.h"
 #include "core/Settings.h"
+#include "doc/Document.h"
+#include "kernel/Measure.h"
 #include "kernel/ShapeInfo.h"
 #include "ui/CommandBar.h"
 #include "ui/CommandRegistry.h"
+#include "ui/ConfirmationCorner.h"
+#include "ui/DocumentView.h"
 #include "ui/FeatureTreePanel.h"
+#include "ui/HomePage.h"
 #include "ui/Icons.h"
+#include "ui/MeasureCommand.h"
+#include "ui/OptionsDialog.h"
+#include "ui/PropertyPanel.h"
 #include "ui/ResourcePane.h"
+#include "ui/SectionCommand.h"
 #include "ui/ViewHud.h"
 
 #include <BRepAdaptor_Surface.hxx>
 #include <BRep_Builder.hxx>
+#include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
-#include <XCAFPrs_AISObject.hxx>
+#include <TopoDS_Face.hxx>
 
 #include <spdlog/spdlog.h>
 
 #include <QActionGroup>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QColorDialog>
+#include <QComboBox>
 #include <QCompleter>
 #include <QDesktopServices>
 #include <QDockWidget>
@@ -32,19 +44,25 @@
 #include <QFutureWatcher>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QShortcut>
+#include <QStackedWidget>
 #include <QStatusBar>
-#include <QStringListModel>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace bl::ui {
 namespace {
@@ -54,7 +72,63 @@ bool isStepFile(const QString& path) {
     return suffix == QLatin1String("step") || suffix == QLatin1String("stp");
 }
 
-QString formatNumber(double v, int decimals = 3) { return QString::number(v, 'f', decimals); }
+QString q(const std::string& s) { return QString::fromStdString(s); }
+
+// Commands that act on an open document; disabled on the Home screen.
+const char* const kDocumentCommands[] = {
+    "file.close", "insert.body", "view.fit", "view.zoomArea", "view.previous", "view.section", "view.front",
+    "view.back", "view.left", "view.right", "view.top", "view.bottom", "view.isometric", "view.dimetric",
+    "view.trimetric", "view.normalTo", "view.style.shadedEdges", "view.style.shaded", "view.style.hlr",
+    "view.style.hlv", "view.style.wireframe", "evaluate.measure", "evaluate.massProps", "evaluate.check",
+    "window.next"};
+
+Units defaultUnits() {
+    const Settings& s = Settings::global();
+    Units u;
+    u.system = units::systemFromName(s.get<std::string>("units.default", "MMGS")).value_or(UnitSystem::MMGS);
+    u.decimals = std::clamp(s.get<int>("units.decimals", 2), 0, 8);
+    return u;
+}
+
+// Bodies for the roots of an imported STEP file.
+std::vector<doc::Body> bodiesFrom(const kernel::ImportResult& result, const QString& path) {
+    std::vector<doc::Body> bodies;
+    const QString stem = QFileInfo(path).completeBaseName();
+    int index = 0;
+    for (const kernel::ImportedRoot& root : result.roots) {
+        ++index;
+        doc::Body body;
+        // Exporters often write their own name as the product name; the file name is more useful then.
+        body.name = q(root.name).trimmed();
+        if (body.name.isEmpty() || body.name.startsWith(QLatin1String("Open CASCADE STEP translator"))) {
+            body.name = result.roots.size() == 1 ? stem : QStringLiteral("%1-%2").arg(stem).arg(index);
+        }
+        body.shape = root.shape;
+        body.xcaf = result.doc;
+        body.label = root.label;
+        body.sourceFile = path;
+        bodies.push_back(std::move(body));
+    }
+    return bodies;
+}
+
+std::optional<gp_Pln> planarFace(const TopoDS_Shape& shape) {
+    if (shape.IsNull() || shape.ShapeType() != TopAbs_FACE) {
+        return std::nullopt;
+    }
+    const TopoDS_Face face = TopoDS::Face(shape);
+    BRepAdaptor_Surface surface(face);
+    if (surface.GetType() != GeomAbs_Plane) {
+        return std::nullopt;
+    }
+    gp_Pln plane = surface.Plane();
+    if (face.Orientation() == TopAbs_REVERSED) {
+        gp_Ax3 pos = plane.Position();
+        pos.ZReverse();
+        plane.SetPosition(pos);
+    }
+    return plane;
+}
 
 } // namespace
 
@@ -65,36 +139,59 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), m_registry(std::m
     setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowTabbedDocks);
     resize(1500, 920);
 
-    m_viewer = new render::OcctViewer();
     registerCommands();
+    buildDocks();
     buildCentral();
     buildMenus();
     buildQuickAccess();
     buildCommandBar();
-    buildDocks();
     buildStatusBar();
     restoreLayout();
 
-    const QString theme = QString::fromStdString(Settings::global().get<std::string>("ui.theme", "light"));
+    const QString theme = q(Settings::global().get<std::string>("ui.theme", "light"));
     setTheme(theme == QLatin1String("dark") ? ThemeKind::Dark : ThemeKind::Light);
 
-    connect(m_viewer, &render::OcctViewer::glReady, this, [this] { m_viewer->setStandardView(render::StandardView::Isometric); });
-    connect(m_viewer, &render::OcctViewer::glFailed, this, [this](const QString& error) {
-        QMessageBox::critical(this, tr("Graphics problem"),
-                              tr("The 3D view could not start.\n\n%1\n\n"
-                                 "Updating the graphics driver usually fixes this.")
-                                  .arg(error));
+    // Enter / Esc / D drive the running command (PLAN.md 7.3); off while no command runs.
+    auto key = [this](const QKeySequence& seq, std::function<void()> fn) {
+        auto* shortcut = new QShortcut(seq, this);
+        shortcut->setEnabled(false);
+        connect(shortcut, &QShortcut::activated, this, std::move(fn));
+        m_commandKeys.push_back(shortcut);
+    };
+    key(QKeySequence(Qt::Key_Return), [this] { finishCommand(true); });
+    key(QKeySequence(Qt::Key_Enter), [this] { finishCommand(true); });
+    key(QKeySequence(Qt::Key_Escape), [this] { finishCommand(false); });
+    key(QKeySequence(Qt::Key_D), [this] {
+        if (m_activeView) {
+            m_activeView->corner()->moveToCursor();
+        }
     });
-    connect(m_viewer, &render::OcctViewer::firstFrame, this, [this] {
-        m_firstFrame = true;
-        emit ready();
-    });
-    connect(m_viewer, &render::OcctViewer::selectionChanged, this, [this](int count) {
-        m_statusSelection->setText(count > 0 ? tr("%n selected", nullptr, count) : QString());
-    });
+
+    setActiveView(nullptr);
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    m_command.reset();
+    m_activeConnections.clear();
+}
+
+doc::Document* MainWindow::activeDocument() { return m_activeView ? m_activeView->document() : nullptr; }
+
+Units MainWindow::units() const {
+    return m_activeView ? m_activeView->document()->model().units : defaultUnits();
+}
+
+void MainWindow::showStatus(const QString& text, int ms) { statusBar()->showMessage(text, ms); }
+
+std::vector<DocumentView*> MainWindow::views() const {
+    std::vector<DocumentView*> result;
+    for (int i = 0; i < m_documents->count(); ++i) {
+        if (auto* view = qobject_cast<DocumentView*>(m_documents->widget(i))) {
+            result.push_back(view);
+        }
+    }
+    return result;
+}
 
 // --- Commands --------------------------------------------------------------------------------------
 
@@ -123,35 +220,88 @@ void MainWindow::registerCommands() {
         s.tooltip = tip;
         return r.add(s, std::move(fn));
     };
+    // Runs `fn` on the active viewer, if any.
+    auto onViewer = [this](std::function<void(render::OcctViewer&)> fn) {
+        return [this, fn = std::move(fn)] {
+            if (m_activeView) {
+                fn(*m_activeView->viewer());
+            }
+        };
+    };
 
     // File
-    command("file.open", tr("Open…"), "open", QKeySequence::Open, tr("Open or import a STEP file"), [this] {
-        const QString startDir = QString::fromStdString(Settings::global().get<std::string>("files.lastDir", ""));
+    command("file.new.part", tr("New Part"), "new-part", QKeySequence::New, tr("Start a new, empty part"),
+            [this] { newPart(); });
+    planned("file.new.assembly", tr("New Assembly"), "Phase 4", "new-assembly");
+    planned("file.new.drawing", tr("New Drawing"), "Phase 5", "new-drawing");
+    command("file.open", tr("Open…"), "open", QKeySequence::Open, tr("Open a STEP file as a new part"), [this] {
+        const QString startDir = q(Settings::global().get<std::string>("files.lastDir", ""));
         const QString path = QFileDialog::getOpenFileName(this, tr("Open"), startDir,
                                                           tr("STEP files (*.step *.stp);;All files (*)"));
         if (!path.isEmpty()) {
             openFile(path);
         }
     });
-    planned("file.new.part", tr("New Part"), "Phase 3", "new-part", QKeySequence::New);
-    planned("file.new.assembly", tr("New Assembly"), "Phase 4", "new-assembly");
-    planned("file.new.drawing", tr("New Drawing"), "Phase 5", "new-drawing");
+    command("file.close", tr("Close"), "exit", QKeySequence(Qt::CTRL | Qt::Key_W), tr("Close the active document"),
+            [this] { closeDocument(m_documents->currentIndex()); });
     planned("file.save", tr("Save"), "Phase 3", "save", QKeySequence::Save);
     planned("file.print", tr("Print…"), "Phase 5", "print", QKeySequence::Print);
     command("file.exit", tr("Exit"), "exit", QKeySequence(), tr("Close BrokenLiquid"), [this] { close(); });
+    command("insert.body", tr("Imported Body (STEP)…"), "open", QKeySequence(),
+            tr("Add the solids of a STEP file to the active part"), [this] {
+                const QString startDir = q(Settings::global().get<std::string>("files.lastDir", ""));
+                const QString path = QFileDialog::getOpenFileName(this, tr("Insert Imported Body"), startDir,
+                                                                  tr("STEP files (*.step *.stp)"));
+                if (!path.isEmpty()) {
+                    insertFile(path);
+                }
+            });
 
     // Edit / tools
-    planned("edit.undo", tr("Undo"), "Phase 1", "undo", QKeySequence::Undo);
-    planned("edit.redo", tr("Redo"), "Phase 1", "redo", QKeySequence(Qt::CTRL | Qt::Key_Y));
+    command("edit.undo", tr("Undo"), "undo", QKeySequence::Undo, tr("Undo the last change"), [this] {
+        finishCommand(false);
+        if (doc::Document* d = activeDocument(); d && d->canUndo()) {
+            const QString label = d->undoLabel();
+            d->undo();
+            showStatus(tr("Undo: %1").arg(label));
+        }
+    });
+    command("edit.redo", tr("Redo"), "redo", QKeySequence(Qt::CTRL | Qt::Key_Y), tr("Redo the last undone change"),
+            [this] {
+                finishCommand(false);
+                if (doc::Document* d = activeDocument(); d && d->canRedo()) {
+                    const QString label = d->redoLabel();
+                    d->redo();
+                    showStatus(tr("Redo: %1").arg(label));
+                }
+            });
     planned("edit.rebuild", tr("Rebuild"), "Phase 3", "rebuild", QKeySequence(Qt::CTRL | Qt::Key_B));
-    planned("tools.options", tr("Options…"), "Phase 1", "options");
+    command("tools.options", tr("Options…"), "options", QKeySequence(), tr("System options and document properties"),
+            [this] { showOptions(); });
+    command("window.next", tr("Next Document"), "pane-files", QKeySequence(Qt::CTRL | Qt::Key_Tab),
+            tr("Switch to the next open document"), [this] {
+                if (m_documents->count() > 1) {
+                    m_documents->setCurrentIndex((m_documents->currentIndex() + 1) % m_documents->count());
+                }
+            });
 
     // View
     command("view.fit", tr("Zoom to Fit"), "view-fit", QKeySequence(Qt::Key_F), tr("Fit the model in the window"),
-            [this] { m_viewer->fitAll(); });
-    planned("view.zoomArea", tr("Zoom to Area"), "Phase 1", "view-zoom-area");
-    planned("view.previous", tr("Previous View"), "Phase 1", "view-previous");
-    planned("view.section", tr("Section View"), "Phase 1", "view-section");
+            onViewer([](render::OcctViewer& v) { v.fitAll(); }));
+    command("view.zoomArea", tr("Zoom to Area"), "view-zoom-area", QKeySequence(),
+            tr("Drag a rectangle to zoom into"), onViewer([this](render::OcctViewer& v) {
+                v.armZoomArea();
+                showStatus(tr("Drag a rectangle around the area to zoom into."));
+            }));
+    command("view.previous", tr("Previous View"), "view-previous", QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Z),
+            tr("Go back to the previous view orientation and zoom"), onViewer([this](render::OcctViewer& v) {
+                if (!v.previousView()) {
+                    showStatus(tr("No previous view."));
+                }
+            }));
+    QAction* section = command("view.section", tr("Section View"), "view-section", QKeySequence(),
+                               tr("Cut the model open with a plane to see inside"), [this] { toggleSection(); });
+    section->setCheckable(true);
 
     struct ViewDef {
         const char* id;
@@ -172,37 +322,22 @@ void MainWindow::registerCommands() {
     for (const ViewDef& v : views) {
         const StandardView sv = v.view;
         command(v.id, v.label, v.icon, QKeySequence(Qt::CTRL | v.key), tr("%1 view").arg(v.label),
-                [this, sv] { m_viewer->setStandardView(sv); });
+                onViewer([sv](render::OcctViewer& viewer) { viewer.setStandardView(sv); }));
     }
     command("view.dimetric", tr("Dimetric"), "view-iso", QKeySequence(), tr("Dimetric view"),
-            [this] { m_viewer->setStandardView(StandardView::Dimetric); });
+            onViewer([](render::OcctViewer& v) { v.setStandardView(StandardView::Dimetric); }));
     command("view.trimetric", tr("Trimetric"), "view-iso", QKeySequence(), tr("Trimetric view"),
-            [this] { m_viewer->setStandardView(StandardView::Trimetric); });
+            onViewer([](render::OcctViewer& v) { v.setStandardView(StandardView::Trimetric); }));
     command("view.normalTo", tr("Normal To"), "view-normal", QKeySequence(Qt::CTRL | Qt::Key_8),
-            tr("Look straight at the selected planar face"), [this] {
-                const Handle(AIS_InteractiveContext)& ctx = m_viewer->context();
-                for (ctx->InitSelected(); ctx->MoreSelected(); ctx->NextSelected()) {
-                    if (!ctx->HasSelectedShape() || ctx->SelectedShape().ShapeType() != TopAbs_FACE) {
-                        continue;
+            tr("Look straight at the selected planar face"), onViewer([this](render::OcctViewer& v) {
+                for (const auto& pick : v.selection()) {
+                    if (const auto plane = planarFace(pick.shape)) {
+                        v.normalTo(plane->Axis().Direction());
+                        return;
                     }
-                    const TopoDS_Face face = TopoDS::Face(ctx->SelectedShape());
-                    BRepAdaptor_Surface surface(face);
-                    if (surface.GetType() != GeomAbs_Plane) {
-                        continue;
-                    }
-                    gp_Dir n = surface.Plane().Axis().Direction();
-                    if (face.Orientation() == TopAbs_REVERSED) {
-                        n.Reverse();
-                    }
-                    const Handle(V3d_View)& view = m_viewer->view();
-                    view->SetProj(n.X(), n.Y(), n.Z());
-                    view->SetUp(std::abs(n.Y()) > 0.99 ? 0.0 : 0.0, std::abs(n.Y()) > 0.99 ? 0.0 : 1.0,
-                                std::abs(n.Y()) > 0.99 ? -n.Y() : 0.0);
-                    m_viewer->fitAll();
-                    return;
                 }
-                statusBar()->showMessage(tr("Select a flat face first."), 4000);
-            });
+                showStatus(tr("Select a flat face first."));
+            }));
 
     struct StyleDef {
         const char* id;
@@ -220,7 +355,8 @@ void MainWindow::registerCommands() {
     auto* styleGroup = new QActionGroup(this);
     for (const StyleDef& s : styles) {
         const DisplayStyle ds = s.style;
-        QAction* a = command(s.id, s.label, s.icon, QKeySequence(), s.label, [this, ds] { m_viewer->setDisplayStyle(ds); });
+        QAction* a = command(s.id, s.label, s.icon, QKeySequence(), s.label,
+                             onViewer([ds](render::OcctViewer& v) { v.setDisplayStyle(ds); }));
         a->setCheckable(true);
         a->setChecked(ds == DisplayStyle::ShadedWithEdges);
         styleGroup->addAction(a);
@@ -302,11 +438,13 @@ void MainWindow::registerCommands() {
     }
 
     // Evaluate
-    planned("evaluate.measure", tr("Measure"), "Phase 1", "measure");
+    command("evaluate.measure", tr("Measure"), "measure", QKeySequence(),
+            tr("Distances, angles, lengths and areas of picked entities"),
+            [this] { startCommand(std::make_unique<MeasureCommand>(*this)); });
     command("evaluate.massProps", tr("Mass Properties"), "mass-properties", QKeySequence(),
-            tr("Volume, surface area and size of the open model"), [this] { showMassProperties(); });
+            tr("Volume, surface area and size of the visible bodies"), [this] { showMassProperties(); });
     command("evaluate.check", tr("Check Geometry"), "check", QKeySequence(),
-            tr("Check the open model for geometry errors"), [this] { showMassProperties(); });
+            tr("Check the visible bodies for geometry errors"), [this] { showMassProperties(); });
     planned("evaluate.issues", tr("Rebuild Issues"), "Phase 3", "issues");
 
     // Help
@@ -335,8 +473,8 @@ void MainWindow::buildMenus() {
     };
 
     QMenu* file = menuBar()->addMenu(tr("&File"));
-    addAll(file, {"file.new.part", "file.new.assembly", "file.new.drawing", nullptr, "file.open", "file.save",
-                  nullptr, "file.print", nullptr, "file.exit"});
+    addAll(file, {"file.new.part", "file.new.assembly", "file.new.drawing", nullptr, "file.open", "file.close",
+                  "file.save", nullptr, "file.print", nullptr, "file.exit"});
 
     QMenu* edit = menuBar()->addMenu(tr("&Edit"));
     addAll(edit, {"edit.undo", "edit.redo", nullptr, "edit.rebuild"});
@@ -352,6 +490,7 @@ void MainWindow::buildMenus() {
     addAll(view, {"view.section", nullptr});
     QMenu* theme = view->addMenu(tr("Theme"));
     addAll(theme, {"view.theme.light", "view.theme.dark"});
+    addAll(view, {nullptr, "window.next"});
 
     QMenu* insert = menuBar()->addMenu(tr("&Insert"));
     QMenu* boss = insert->addMenu(tr("Boss/Base"));
@@ -365,7 +504,7 @@ void MainWindow::buildMenus() {
     addAll(pattern, {"features.linearPattern", "features.circularPattern", "features.mirror"});
     QMenu* ref = insert->addMenu(tr("Reference Geometry"));
     addAll(ref, {"features.plane", "features.axis", "features.point", "features.csys"});
-    addAll(insert, {nullptr, "sketch.sketch", "features.equations"});
+    addAll(insert, {nullptr, "insert.body", nullptr, "sketch.sketch", "features.equations"});
 
     QMenu* tools = menuBar()->addMenu(tr("&Tools"));
     addAll(tools, {"evaluate.measure", "evaluate.massProps", "evaluate.check", nullptr, "tools.options"});
@@ -443,7 +582,7 @@ void MainWindow::buildCommandBar() {
     m_commandBar->addGroup(features, {"features.shell", "features.draft"});
     m_commandBar->addFlyout(features, tr("Reference"),
                             {"features.plane", "features.axis", "features.point", "features.csys"});
-    m_commandBar->addGroup(features, {"features.combine", "features.equations"});
+    m_commandBar->addGroup(features, {"features.combine", "features.equations", "insert.body"});
 
     const int sketch = m_commandBar->addTab(tr("Sketch"));
     m_commandBar->addGroup(sketch, {"sketch.sketch", "sketch.dimension"});
@@ -469,49 +608,57 @@ void MainWindow::buildCommandBar() {
 }
 
 void MainWindow::buildCentral() {
-    auto* container = new QWidget(this);
-    container->setObjectName(QStringLiteral("GraphicsArea"));
-    auto* layout = new QVBoxLayout(container);
-    layout->setContentsMargins(0, 0, 0, 0);
-    m_viewer->setParent(container);
-    layout->addWidget(m_viewer);
+    m_central = new QStackedWidget(this);
+    m_central->setObjectName(QStringLiteral("CentralStack"));
 
-    m_hud = new ViewHud(*m_registry, container);
-    m_hud->addCommand(QStringLiteral("view.fit"));
-    m_hud->addCommand(QStringLiteral("view.zoomArea"));
-    m_hud->addCommand(QStringLiteral("view.previous"));
-    m_hud->addSeparator();
-    m_hud->addCommand(QStringLiteral("view.section"));
-    m_hud->addFlyout(QStringLiteral("view-orientation"), tr("View Orientation"),
-                     {QStringLiteral("view.front"), QStringLiteral("view.back"), QStringLiteral("view.left"),
-                      QStringLiteral("view.right"), QStringLiteral("view.top"), QStringLiteral("view.bottom"),
-                      QStringLiteral("view.isometric"), QStringLiteral("view.dimetric"),
-                      QStringLiteral("view.trimetric"), QStringLiteral("view.normalTo")});
-    m_hud->addFlyout(QStringLiteral("view-style"), tr("Display Style"),
-                     {QStringLiteral("view.style.shadedEdges"), QStringLiteral("view.style.shaded"),
-                      QStringLiteral("view.style.hlr"), QStringLiteral("view.style.hlv"),
-                      QStringLiteral("view.style.wireframe")});
+    m_home = new HomePage(*m_registry, m_central);
+    connect(m_home, &HomePage::openRecentRequested, this, &MainWindow::openFile);
+    connect(m_home, &HomePage::settingsChanged, this, [this] {
+        const QString theme = q(Settings::global().get<std::string>("ui.theme", "light"));
+        setTheme(theme == QLatin1String("dark") ? ThemeKind::Dark : ThemeKind::Light);
+    });
 
-    setCentralWidget(container);
+    m_documents = new QTabWidget(m_central);
+    m_documents->setObjectName(QStringLiteral("DocumentTabs"));
+    m_documents->setDocumentMode(true);
+    m_documents->setTabsClosable(true);
+    m_documents->setMovable(true);
+    m_documents->tabBar()->setExpanding(false);
+    connect(m_documents, &QTabWidget::tabCloseRequested, this, [this](int index) { closeDocument(index); });
+    connect(m_documents, &QTabWidget::currentChanged, this,
+            [this](int index) { setActiveView(qobject_cast<DocumentView*>(m_documents->widget(index))); });
+
+    m_central->addWidget(m_home);
+    m_central->addWidget(m_documents);
+    setCentralWidget(m_central);
 }
 
 void MainWindow::buildDocks() {
-    // Left: Feature Tree / Property Panel / Display (tabs, like the familiar manager pane)
+    // Left: Feature Tree / Property Panel (tabs, like the familiar manager pane)
     m_tree = new FeatureTreePanel(this);
+    m_panel = new PropertyPanel(this);
     m_managerTabs = new QTabWidget(this);
     m_managerTabs->setObjectName(QStringLiteral("ManagerTabs"));
     m_managerTabs->setDocumentMode(true);
     m_managerTabs->setIconSize(QSize(18, 18));
     m_managerTabs->addTab(m_tree, icon(QStringLiteral("tab-tree"), tr("Feature Tree")), QString());
     m_managerTabs->setTabToolTip(0, tr("Feature Tree"));
-    auto* property = new QLabel(tr("The Property Panel opens here when a command needs input.\n\nComing in Phase 1."),
-                                m_managerTabs);
-    property->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    property->setWordWrap(true);
-    property->setMargin(10);
-    property->setObjectName(QStringLiteral("PaneHint"));
-    m_managerTabs->addTab(property, icon(QStringLiteral("tab-property"), tr("Property Panel")), QString());
+    m_managerTabs->addTab(m_panel, icon(QStringLiteral("tab-property"), tr("Property Panel")), QString());
     m_managerTabs->setTabToolTip(1, tr("Property Panel"));
+
+    connect(m_panel, &PropertyPanel::okClicked, this, [this] { finishCommand(true); });
+    connect(m_panel, &PropertyPanel::cancelClicked, this, [this] { finishCommand(false); });
+
+    connect(m_tree, &FeatureTreePanel::bodySelectionChanged, this, [this](const QList<QUuid>& ids) {
+        if (m_activeView && !m_command) {
+            m_activeView->selectBodies(ids);
+            updateSelectionStatus();
+        }
+    });
+    connect(m_tree, &FeatureTreePanel::renameRequested, this, &MainWindow::renameBody);
+    connect(m_tree, &FeatureTreePanel::visibilityRequested, this, &MainWindow::setBodiesVisible);
+    connect(m_tree, &FeatureTreePanel::colorRequested, this, &MainWindow::recolorBodies);
+    connect(m_tree, &FeatureTreePanel::deleteRequested, this, &MainWindow::deleteBodies);
 
     auto* left = new QDockWidget(tr("Feature Tree"), this);
     left->setObjectName(QStringLiteral("ManagerDock"));
@@ -519,7 +666,7 @@ void MainWindow::buildDocks() {
     left->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     left->setTitleBarWidget(new QWidget(left)); // no title bar, like the familiar layout
     addDockWidget(Qt::LeftDockWidgetArea, left);
-    resizeDocks({left}, {270}, Qt::Horizontal);
+    resizeDocks({left}, {280}, Qt::Horizontal);
 
     // Right: Resource Pane
     m_resources = new ResourcePane(*m_registry, this);
@@ -537,130 +684,605 @@ void MainWindow::buildDocks() {
 void MainWindow::buildStatusBar() {
     QStatusBar* bar = statusBar();
     m_statusSelection = new QLabel(bar);
-    m_statusState = new QLabel(tr("Phase 0 preview · viewer only"), bar);
+    m_statusSelection->setObjectName(QStringLiteral("StatusMeasure"));
+    m_statusState = new QLabel(bar);
     m_statusState->setObjectName(QStringLiteral("StatusState"));
-    m_statusUnits = new QLabel(QStringLiteral("MMGS"), bar);
-    m_statusUnits->setToolTip(tr("Unit system: millimetre, gram, second"));
+    m_statusUnits = new QToolButton(bar);
+    m_statusUnits->setObjectName(QStringLiteral("StatusUnits"));
+    m_statusUnits->setPopupMode(QToolButton::InstantPopup);
+    m_statusUnits->setAutoRaise(true);
+    auto* menu = new QMenu(m_statusUnits);
+    for (UnitSystem s : {UnitSystem::MMGS, UnitSystem::CGS, UnitSystem::MKS, UnitSystem::IPS}) {
+        QAction* a = menu->addAction(QStringLiteral("%1  (%2)").arg(QString::fromLatin1(units::systemName(s)),
+                                                                   QString::fromLatin1(units::systemDescription(s))));
+        a->setData(static_cast<int>(s));
+        connect(a, &QAction::triggered, this, [this, s] {
+            if (doc::Document* d = activeDocument()) {
+                Units u = d->model().units;
+                u.system = s;
+                setDocumentUnits(u);
+            }
+        });
+    }
+    menu->addSeparator();
+    connect(menu->addAction(tr("Edit Document Units…")), &QAction::triggered, this, [this] { showOptions(true); });
+    m_statusUnits->setMenu(menu);
+
     bar->addPermanentWidget(m_statusSelection);
     bar->addPermanentWidget(m_statusState);
     bar->addPermanentWidget(m_statusUnits);
-    bar->showMessage(tr("Ready. Open a STEP file to view it."));
+    bar->showMessage(tr("Ready."));
 }
 
 void MainWindow::setTheme(ThemeKind kind) {
     applyTheme(kind);
     const ThemeColors c = themeColors(kind);
-    m_viewer->setBackgroundGradient(c.viewportTop, c.viewportBottom);
+    for (DocumentView* view : views()) {
+        view->viewer()->setBackgroundGradient(c.viewportTop, c.viewportBottom);
+        view->hud()->update();
+    }
     if (QAction* a = m_registry->action(kind == ThemeKind::Dark ? QStringLiteral("view.theme.dark")
                                                                 : QStringLiteral("view.theme.light"))) {
         a->setChecked(true);
     }
     Settings::global().set("ui.theme", std::string(kind == ThemeKind::Dark ? "dark" : "light"));
-    m_hud->update();
 }
 
-// --- Files -----------------------------------------------------------------------------------------
+void MainWindow::applyViewerSettings(render::OcctViewer* viewer) {
+    const ThemeColors c = themeColors(currentTheme());
+    viewer->setBackgroundGradient(c.viewportTop, c.viewportBottom);
+    viewer->setReverseWheelZoom(Settings::global().get<bool>("view.mouse.reverseZoom", false));
+}
+
+// --- Documents -------------------------------------------------------------------------------------
+
+doc::Document* MainWindow::newPart() {
+    doc::PartModel model;
+    model.units = defaultUnits();
+    auto document = std::make_unique<doc::Document>(doc::DocumentType::Part, tr("Part%1").arg(++m_partCounter),
+                                                    std::move(model));
+    DocumentView* view = addDocument(std::move(document));
+    showStatus(tr("New part. Insert > Imported Body adds STEP solids to it."));
+    return view->document();
+}
+
+DocumentView* MainWindow::addDocument(std::unique_ptr<doc::Document> document) {
+    doc::Document* d = document.release();
+    auto* view = new DocumentView(d, *m_registry, m_documents);
+    d->setParent(view); // the document lives as long as its tab
+    applyViewerSettings(view->viewer());
+
+    render::OcctViewer* viewer = view->viewer();
+    connect(viewer, &render::OcctViewer::firstFrame, this, [this] {
+        if (!m_firstFrame) {
+            m_firstFrame = true;
+            emit ready();
+        }
+    });
+    connect(viewer, &render::OcctViewer::glFailed, this, [this](const QString& error) {
+        QMessageBox::critical(this, tr("Graphics problem"),
+                              tr("The 3D view could not start.\n\n%1\n\n"
+                                 "Updating the graphics driver usually fixes this.")
+                                  .arg(error));
+    });
+    connect(view->corner(), &ConfirmationCorner::accepted, this, [this] { finishCommand(true); });
+    connect(view->corner(), &ConfirmationCorner::cancelled, this, [this] { finishCommand(false); });
+    connect(d, &doc::Document::historyChanged, this, [this, view] { updateTabText(view); });
+    connect(d, &doc::Document::titleChanged, this, [this, view] { updateTabText(view); });
+
+    const int index = m_documents->addTab(view, icon(QStringLiteral("tree-part"), d->title()), d->title());
+    updateTabText(view);
+    m_central->setCurrentWidget(m_documents);
+    m_documents->setCurrentIndex(index);
+    setActiveView(view);
+    return view;
+}
+
+void MainWindow::updateTabText(DocumentView* view) {
+    const int index = m_documents->indexOf(view);
+    if (index < 0) {
+        return;
+    }
+    doc::Document* d = view->document();
+    m_documents->setTabText(index, d->isModified() ? d->title() + QStringLiteral(" *") : d->title());
+    m_documents->setTabToolTip(index, d->filePath().isEmpty() ? d->title() : d->filePath());
+    if (view == m_activeView) {
+        updateDocumentState();
+    }
+}
+
+bool MainWindow::closeDocument(int index) {
+    auto* view = qobject_cast<DocumentView*>(m_documents->widget(index));
+    if (!view) {
+        return false;
+    }
+    if (view->document()->isModified()) {
+        const auto answer = QMessageBox::question(
+            this, tr("Close"),
+            tr("%1 has changes that are not saved. Saving arrives in Phase 3.\n\nClose it anyway?")
+                .arg(view->document()->title()));
+        if (answer != QMessageBox::Yes) {
+            return false;
+        }
+    }
+    if (view == m_activeView) {
+        finishCommand(false);
+    }
+    m_documents->removeTab(index);
+    view->deleteLater();
+    if (m_documents->count() == 0) {
+        setActiveView(nullptr);
+    }
+    return true;
+}
+
+void MainWindow::setActiveView(DocumentView* view) {
+    if (m_command && view != m_activeView) {
+        finishCommand(false);
+    }
+    for (const QMetaObject::Connection& c : m_activeConnections) {
+        disconnect(c);
+    }
+    m_activeConnections.clear();
+    m_activeView = view;
+
+    if (view) {
+        doc::Document* d = view->document();
+        m_activeConnections.push_back(connect(view->viewer(), &render::OcctViewer::selectionChanged, this,
+                                              &MainWindow::onViewerSelection));
+        m_activeConnections.push_back(connect(d, &doc::Document::historyChanged, this, &MainWindow::updateDocumentState));
+        m_activeConnections.push_back(connect(d, &doc::Document::modelChanged, this, [this] {
+            if (m_command) {
+                m_command->unitsChanged();
+            }
+            updateUnitsStatus();
+            updateSelectionStatus();
+        }));
+        m_activeConnections.push_back(connect(d, &doc::Document::titleChanged, this, &MainWindow::updateDocumentState));
+        m_central->setCurrentWidget(m_documents);
+    } else {
+        m_central->setCurrentWidget(m_home);
+        m_home->refresh();
+    }
+    m_tree->setDocument(view ? view->document() : nullptr);
+    m_managerTabs->setCurrentWidget(m_tree);
+    updateDocumentState();
+    updateUnitsStatus();
+    updateSelectionStatus();
+}
+
+void MainWindow::updateDocumentState() {
+    doc::Document* d = activeDocument();
+    setWindowTitle(d ? QStringLiteral("%1%2 - BrokenLiquid").arg(d->title(), d->isModified() ? QStringLiteral(" *") : QString())
+                     : QStringLiteral("BrokenLiquid"));
+
+    for (const char* id : kDocumentCommands) {
+        if (QAction* a = m_registry->action(QString::fromLatin1(id))) {
+            a->setEnabled(d != nullptr);
+        }
+    }
+    QAction* undo = m_registry->action(QStringLiteral("edit.undo"));
+    QAction* redo = m_registry->action(QStringLiteral("edit.redo"));
+    undo->setEnabled(d && d->canUndo());
+    redo->setEnabled(d && d->canRedo());
+    undo->setText(d && d->canUndo() ? tr("Undo %1").arg(d->undoLabel()) : tr("Undo"));
+    redo->setText(d && d->canRedo() ? tr("Redo %1").arg(d->redoLabel()) : tr("Redo"));
+    undo->setToolTip(undo->text() + QStringLiteral(" (Ctrl+Z)"));
+    redo->setToolTip(redo->text() + QStringLiteral(" (Ctrl+Y)"));
+
+    if (m_activeView) {
+        m_registry->action(QStringLiteral("view.section"))->setChecked(m_activeView->section().has_value());
+        static const std::pair<render::DisplayStyle, const char*> styles[] = {
+            {render::DisplayStyle::ShadedWithEdges, "view.style.shadedEdges"},
+            {render::DisplayStyle::Shaded, "view.style.shaded"},
+            {render::DisplayStyle::HiddenLinesRemoved, "view.style.hlr"},
+            {render::DisplayStyle::HiddenLinesVisible, "view.style.hlv"},
+            {render::DisplayStyle::Wireframe, "view.style.wireframe"},
+        };
+        for (const auto& [style, id] : styles) {
+            if (style == m_activeView->viewer()->displayStyle()) {
+                m_registry->action(QString::fromLatin1(id))->setChecked(true);
+            }
+        }
+        const int bodies = static_cast<int>(m_activeView->document()->model().bodies.size());
+        m_statusState->setText(tr("%n body(s)", nullptr, bodies));
+    } else {
+        m_registry->action(QStringLiteral("view.section"))->setChecked(false);
+        m_statusState->setText(tr("No document"));
+    }
+}
 
 void MainWindow::openFile(const QString& path) {
     if (path.isEmpty()) {
         return;
     }
     if (!isStepFile(path)) {
-        QMessageBox::information(this, tr("Open"),
-                                 tr("Phase 0 can open STEP files (.step, .stp) only.\n\n%1").arg(path));
+        QMessageBox::information(this, tr("Open"), tr("BrokenLiquid can open STEP files (.step, .stp) so far.\n\n%1").arg(path));
         return;
     }
-    if (m_importBusy) {
-        statusBar()->showMessage(tr("Still importing the previous file…"), 3000);
+    importAsync(path, false);
+}
+
+void MainWindow::insertFile(const QString& path) {
+    if (!activeDocument()) {
+        openFile(path);
         return;
     }
-    m_importBusy = true;
+    importAsync(path, true);
+}
+
+void MainWindow::importAsync(const QString& path, bool insert) {
+    if (m_importsBusy > 0) {
+        showStatus(tr("Still importing the previous file…"), 3000);
+        return;
+    }
+    ++m_importsBusy;
     Settings::global().set("files.lastDir", QFileInfo(path).absolutePath().toStdString());
     statusBar()->showMessage(tr("Importing %1…").arg(QFileInfo(path).fileName()));
     QApplication::setOverrideCursor(Qt::BusyCursor);
 
+    QPointer<DocumentView> target = insert ? m_activeView : nullptr;
     auto* watcher = new QFutureWatcher<kernel::ImportResult>(this);
-    connect(watcher, &QFutureWatcher<kernel::ImportResult>::finished, this, [this, watcher, path] {
+    connect(watcher, &QFutureWatcher<kernel::ImportResult>::finished, this, [this, watcher, path, insert, target] {
         QApplication::restoreOverrideCursor();
-        m_importBusy = false;
-        showImport(watcher->result(), path);
+        --m_importsBusy;
+        if (insert && target) {
+            setActiveView(target);
+            m_documents->setCurrentWidget(target);
+        }
+        finishImport(watcher->result(), path, insert && target);
         watcher->deleteLater();
     });
     const std::filesystem::path file = path.toStdWString();
     watcher->setFuture(QtConcurrent::run([file] { return kernel::importStep(file); }));
 }
 
-void MainWindow::showImport(const kernel::ImportResult& result, const QString& path) {
-    if (!result.ok) {
+void MainWindow::finishImport(const kernel::ImportResult& result, const QString& path, bool insert) {
+    if (!result.ok || result.roots.empty()) {
         statusBar()->showMessage(tr("Import failed."), 5000);
         QMessageBox::warning(this, tr("Import failed"),
-                             tr("%1\n\n%2").arg(QFileInfo(path).fileName(), QString::fromStdString(result.error)));
+                             tr("%1\n\n%2").arg(QFileInfo(path).fileName(),
+                                                result.ok ? tr("The file has no shapes.") : q(result.error)));
         emit importFinished(false);
         return;
     }
+    std::vector<doc::Body> bodies = bodiesFrom(result, path);
+    const int count = static_cast<int>(bodies.size());
 
-    m_viewer->removeAll();
-    m_tree->clearBodies();
-    m_model = result;
-    m_modelPath = path;
-
-    const QString name = QFileInfo(path).completeBaseName();
-    int index = 0;
-    for (const kernel::ImportedRoot& root : m_model.roots) {
-        ++index;
-        Handle(XCAFPrs_AISObject) object = new XCAFPrs_AISObject(root.label);
-        m_viewer->display(object, false);
-        const kernel::ShapeStats s = kernel::computeStats(root.shape);
-        // Exporters often write their own name as the product name; the file name is more useful then.
-        QString bodyName = QString::fromStdString(root.name).trimmed();
-        if (bodyName.isEmpty() || bodyName.startsWith(QLatin1String("Open CASCADE STEP translator"))) {
-            bodyName = m_model.roots.size() == 1 ? name : QStringLiteral("%1-%2").arg(name).arg(index);
+    if (insert) {
+        doc::Document* d = activeDocument();
+        d->transact(tr("Import Body"), [&bodies](doc::PartModel& m) {
+            for (doc::Body& b : bodies) {
+                ++m.importCount;
+                m.bodies.push_back(std::move(b));
+            }
+            return true;
+        });
+        m_activeView->viewer()->fitAll();
+    } else {
+        // An untouched new part (e.g. Part1 at start-up) is replaced rather than kept beside it.
+        if (doc::Document* d = activeDocument(); d && d->isPristine() && d->filePath().isEmpty()) {
+            const int index = m_documents->indexOf(m_activeView);
+            closeDocument(index);
         }
-        m_tree->addImportedBody(bodyName,
-                                tr("%1 solid(s), %2 faces, %3 edges").arg(s.solids).arg(s.faces).arg(s.edges));
+        doc::PartModel model;
+        model.units = defaultUnits();
+        model.importCount = count;
+        model.bodies = std::move(bodies);
+        auto document = std::make_unique<doc::Document>(doc::DocumentType::Part, QFileInfo(path).completeBaseName(),
+                                                        std::move(model));
+        document->setFilePath(path);
+        addDocument(std::move(document));
+        addRecentFile(path);
     }
-    m_viewer->fitAll();
 
-    m_tree->setDocumentName(name);
-    setWindowTitle(QStringLiteral("%1 - BrokenLiquid").arg(name));
-    statusBar()->showMessage(
-        tr("Opened %1 in %2 s").arg(QFileInfo(path).fileName(), QString::number(result.seconds, 'f', 2)), 8000);
+    statusBar()->showMessage(tr("%1 %2: %n body(s) in %3 s", nullptr, count)
+                                 .arg(insert ? tr("Inserted") : tr("Opened"), QFileInfo(path).fileName(),
+                                      QString::number(result.seconds, 'f', 2)),
+                             8000);
     emit importFinished(true);
 }
 
-void MainWindow::showMassProperties() {
-    if (m_model.roots.empty()) {
-        QMessageBox::information(this, tr("Mass Properties"), tr("Open a model first."));
+void MainWindow::addRecentFile(const QString& path) {
+    Settings& s = Settings::global();
+    auto recent = s.get<std::vector<std::string>>("files.recent", {});
+    const std::string entry = QFileInfo(path).absoluteFilePath().toStdString();
+    recent.erase(std::remove(recent.begin(), recent.end(), entry), recent.end());
+    recent.insert(recent.begin(), entry);
+    const auto max = static_cast<size_t>(std::max(0, s.get<int>("files.recentMax", 10)));
+    if (recent.size() > max) {
+        recent.resize(max);
+    }
+    s.set("files.recent", recent);
+}
+
+// --- Interactive commands ------------------------------------------------------------------------------
+
+void MainWindow::startCommand(std::unique_ptr<InteractiveCommand> command) {
+    if (!m_activeView) {
+        showStatus(tr("Open or create a part first."));
         return;
     }
+    finishCommand(false);
+    m_command = std::move(command);
+    InteractiveCommand* cmd = m_command.get();
+    connect(cmd, &InteractiveCommand::finishRequested, this, [this] { finishCommand(true); }, Qt::QueuedConnection);
+
+    m_panel->begin(cmd->title(), cmd->iconName(), cmd->confirms());
+    m_managerTabs->setCurrentWidget(m_panel);
+    m_activeView->corner()->showFor(cmd->confirms());
+    for (QShortcut* key : m_commandKeys) {
+        key->setEnabled(true);
+    }
+    cmd->start();
+    spdlog::info("command started: {}", cmd->id().toStdString());
+}
+
+void MainWindow::finishCommand(bool accept) {
+    if (!m_command) {
+        return;
+    }
+    // Commit a value still being typed (fields apply on focus-out).
+    if (QWidget* focus = QApplication::focusWidget(); focus && m_panel->isAncestorOf(focus)) {
+        focus->clearFocus();
+    }
+    if (accept && m_command->confirms()) {
+        if (!m_command->accept()) {
+            return; // the command wants more input
+        }
+    } else {
+        m_command->cancel();
+    }
+    spdlog::info("command {}: {}", accept ? "ok" : "cancelled", m_command->id().toStdString());
+
+    InteractiveCommand* done = m_command.release();
+    done->deleteLater(); // may be in one of its own signals
+    m_panel->clear();
+    m_managerTabs->setCurrentWidget(m_tree);
+    for (QShortcut* key : m_commandKeys) {
+        key->setEnabled(false);
+    }
+    for (DocumentView* view : views()) {
+        view->corner()->hide();
+        view->viewer()->clearTemporary();
+        view->viewer()->setSelectionFilter(true, true, true);
+    }
+    updateDocumentState();
+    updateSelectionStatus();
+}
+
+void MainWindow::toggleSection() {
+    if (!m_activeView) {
+        return;
+    }
+    if (m_command && m_command->id() == QLatin1String("view.section")) {
+        finishCommand(false);
+    } else if (m_activeView->section()) {
+        finishCommand(false);
+        m_activeView->setSection(std::nullopt);
+        showStatus(tr("Section view off."));
+    } else {
+        startCommand(std::make_unique<SectionCommand>(*this));
+    }
+    updateDocumentState();
+    // While the command runs the button stays down, so it reads as "section view in progress".
+    if (m_command && m_command->id() == QLatin1String("view.section")) {
+        m_registry->action(QStringLiteral("view.section"))->setChecked(true);
+    }
+}
+
+// --- Edits -----------------------------------------------------------------------------------------
+
+void MainWindow::renameBody(const QUuid& id, const QString& name) {
+    if (doc::Document* d = activeDocument()) {
+        d->transact(tr("Rename Body"), [&](doc::PartModel& m) {
+            doc::Body* b = m.body(id);
+            if (!b) {
+                return false;
+            }
+            b->name = name;
+            return true;
+        });
+    }
+}
+
+void MainWindow::setBodiesVisible(const QList<QUuid>& ids, bool visible) {
+    if (doc::Document* d = activeDocument()) {
+        d->transact(visible ? tr("Show Body") : tr("Hide Body"), [&](doc::PartModel& m) {
+            for (const QUuid& id : ids) {
+                if (doc::Body* b = m.body(id)) {
+                    b->visible = visible;
+                }
+            }
+            return true;
+        });
+    }
+}
+
+void MainWindow::recolorBodies(const QList<QUuid>& ids) {
+    doc::Document* d = activeDocument();
+    if (!d || ids.isEmpty()) {
+        return;
+    }
+    const doc::Body* first = d->model().body(ids.front());
+    const QColor initial = first && first->color ? *first->color : QColor(0xB8, 0xC2, 0xCC);
+    const QColor color = QColorDialog::getColor(initial, this, tr("Body Appearance"));
+    if (!color.isValid()) {
+        return;
+    }
+    d->transact(tr("Change Appearance"), [&](doc::PartModel& m) {
+        for (const QUuid& id : ids) {
+            if (doc::Body* b = m.body(id)) {
+                b->color = color;
+            }
+        }
+        return true;
+    });
+}
+
+void MainWindow::deleteBodies(const QList<QUuid>& ids) {
+    if (doc::Document* d = activeDocument()) {
+        const bool done = d->transact(ids.size() == 1 ? tr("Delete Body") : tr("Delete Bodies"), [&](doc::PartModel& m) {
+            const auto before = m.bodies.size();
+            std::erase_if(m.bodies, [&](const doc::Body& b) { return ids.contains(b.id); });
+            return m.bodies.size() != before;
+        });
+        if (done) {
+            showStatus(tr("Deleted. Ctrl+Z brings it back."));
+        }
+    }
+}
+
+void MainWindow::setDocumentUnits(const Units& u) {
+    if (doc::Document* d = activeDocument()) {
+        d->transact(tr("Change Units"), [&](doc::PartModel& m) {
+            m.units = u;
+            return true;
+        });
+    }
+}
+
+// --- Selection / status bar ----------------------------------------------------------------------------
+
+void MainWindow::onViewerSelection() {
+    if (m_command) {
+        m_command->selectionChanged();
+    } else if (m_activeView) {
+        m_tree->setSelectedBodies(m_activeView->selectedBodies());
+    }
+    updateSelectionStatus();
+}
+
+void MainWindow::updateSelectionStatus() {
+    // Quick measure in the status bar (PLAN.md 6.9): length / area / distance of the selection.
+    QString text;
+    if (m_activeView && !m_command) {
+        const Units u = units();
+        std::vector<TopoDS_Shape> shapes;
+        for (const auto& pick : m_activeView->viewer()->selection()) {
+            if (!pick.shape.IsNull()) {
+                shapes.push_back(pick.shape);
+            }
+        }
+        if (shapes.size() == 1) {
+            const kernel::EntityInfo info = kernel::describe(shapes.front());
+            switch (info.kind) {
+            case kernel::EntityKind::Edge:
+                text = info.radius ? tr("Radius: %1   Length: %2").arg(q(units::formatLength(*info.radius, u)),
+                                                                       q(units::formatLength(info.length, u)))
+                                   : tr("Length: %1").arg(q(units::formatLength(info.length, u)));
+                break;
+            case kernel::EntityKind::Face:
+                text = info.radius ? tr("Radius: %1   Area: %2").arg(q(units::formatLength(*info.radius, u)),
+                                                                     q(units::formatArea(info.area, u)))
+                                   : tr("Area: %1").arg(q(units::formatArea(info.area, u)));
+                break;
+            case kernel::EntityKind::Vertex:
+                if (info.point) {
+                    text = tr("X: %1  Y: %2  Z: %3")
+                               .arg(q(units::formatLength(info.point->X(), u)), q(units::formatLength(info.point->Y(), u)),
+                                    q(units::formatLength(info.point->Z(), u)));
+                }
+                break;
+            case kernel::EntityKind::Solid:
+                text = tr("Volume: %1").arg(q(units::formatVolume(info.volume, u)));
+                break;
+            case kernel::EntityKind::Other: break;
+            }
+        } else if (shapes.size() == 2) {
+            const kernel::PairMeasure m = kernel::measurePair(shapes[0], shapes[1]);
+            if (m.valid) {
+                text = tr("Distance: %1").arg(q(units::formatLength(m.distance, u)));
+                if (m.angle && !m.parallel) {
+                    text += tr("   Angle: %1").arg(q(units::formatAngle(*m.angle, u)));
+                }
+            }
+        } else if (shapes.size() > 2) {
+            text = tr("%n selected", nullptr, static_cast<int>(shapes.size()));
+        }
+    }
+    m_statusSelection->setText(text);
+}
+
+void MainWindow::updateUnitsStatus() {
+    const Units u = units();
+    m_statusUnits->setText(QString::fromLatin1(units::systemName(u.system)));
+    m_statusUnits->setToolTip(tr("Document units: %1. Click to change.").arg(QString::fromLatin1(units::systemDescription(u.system))));
+    m_statusUnits->setEnabled(activeDocument() != nullptr);
+    for (QAction* a : m_statusUnits->menu()->actions()) {
+        if (a->data().isValid()) {
+            a->setCheckable(true);
+            a->setChecked(a->data().toInt() == static_cast<int>(u.system));
+        }
+    }
+}
+
+void MainWindow::showOptions(bool documentPage) {
+    doc::Document* d = activeDocument();
+    const Units current = d ? d->model().units : Units{};
+    OptionsDialog dialog(d ? &current : nullptr, d ? d->title() : QString(), this);
+    if (documentPage) {
+        dialog.showDocumentProperties();
+    }
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QString theme = q(Settings::global().get<std::string>("ui.theme", "light"));
+    setTheme(theme == QLatin1String("dark") ? ThemeKind::Dark : ThemeKind::Light);
+    for (DocumentView* view : views()) {
+        applyViewerSettings(view->viewer());
+    }
+    if (const auto changed = dialog.changedDocumentUnits()) {
+        setDocumentUnits(*changed);
+    }
+    m_home->refresh();
+}
+
+// --- Evaluate / help -------------------------------------------------------------------------------
+
+void MainWindow::showMassProperties() {
+    doc::Document* d = activeDocument();
     BRep_Builder builder;
     TopoDS_Compound all;
     builder.MakeCompound(all);
-    for (const kernel::ImportedRoot& root : m_model.roots) {
-        builder.Add(all, root.shape);
+    int count = 0;
+    if (d) {
+        for (const doc::Body& body : d->model().bodies) {
+            if (body.visible) {
+                builder.Add(all, body.shape);
+                ++count;
+            }
+        }
+    }
+    if (count == 0) {
+        QMessageBox::information(this, tr("Mass Properties"), tr("There are no visible bodies to evaluate."));
+        return;
     }
     QApplication::setOverrideCursor(Qt::BusyCursor);
     const kernel::ShapeStats s = kernel::computeStats(all);
     QApplication::restoreOverrideCursor();
 
+    const Units u = units();
     const double sx = s.bbox[3] - s.bbox[0], sy = s.bbox[4] - s.bbox[1], sz = s.bbox[5] - s.bbox[2];
     const QString text =
         tr("<table cellspacing='6'>"
-           "<tr><td>Volume</td><td align='right'><b>%1</b> mm³</td></tr>"
-           "<tr><td>Surface area</td><td align='right'><b>%2</b> mm²</td></tr>"
-           "<tr><td>Bounding box</td><td align='right'><b>%3 × %4 × %5</b> mm</td></tr>"
-           "<tr><td>Solids / faces / edges</td><td align='right'>%6 / %7 / %8</td></tr>"
-           "<tr><td>Geometry check</td><td align='right'>%9</td></tr>"
+           "<tr><td>Bodies</td><td align='right'>%1</td></tr>"
+           "<tr><td>Volume</td><td align='right'><b>%2</b></td></tr>"
+           "<tr><td>Surface area</td><td align='right'><b>%3</b></td></tr>"
+           "<tr><td>Bounding box</td><td align='right'><b>%4 × %5 × %6</b></td></tr>"
+           "<tr><td>Solids / faces / edges</td><td align='right'>%7 / %8 / %9</td></tr>"
+           "<tr><td>Geometry check</td><td align='right'>%10</td></tr>"
            "</table><p style='color:gray'>Mass needs a material (Phase 3).</p>")
-            .arg(formatNumber(s.volume), formatNumber(s.area), formatNumber(sx, 2), formatNumber(sy, 2),
-                 formatNumber(sz, 2))
+            .arg(count)
+            .arg(q(units::formatVolume(s.volume, u)), q(units::formatArea(s.area, u)),
+                 q(units::formatLength(sx, u, false)), q(units::formatLength(sy, u, false)), q(units::formatLength(sz, u)))
             .arg(s.solids)
             .arg(s.faces)
             .arg(s.edges)
             .arg(s.valid ? tr("<span style='color:#1b8a3a'>No errors</span>")
                          : tr("<span style='color:#c0392b'>Problems found</span>"));
     QMessageBox box(this);
-    box.setWindowTitle(tr("Mass Properties"));
+    box.setWindowTitle(tr("Mass Properties — %1").arg(d->title()));
     box.setTextFormat(Qt::RichText);
     box.setText(text);
     box.exec();
@@ -669,7 +1291,8 @@ void MainWindow::showMassProperties() {
 void MainWindow::showGlInfo() {
     QMessageBox box(this);
     box.setWindowTitle(tr("Graphics Information"));
-    box.setText(m_viewer->isGlReady() ? m_viewer->glInfo() : tr("OpenGL is not initialised."));
+    render::OcctViewer* viewer = m_activeView ? m_activeView->viewer() : nullptr;
+    box.setText(viewer && viewer->isGlReady() ? viewer->glInfo() : tr("Open a document to start the 3D view."));
     box.exec();
 }
 
@@ -677,7 +1300,7 @@ void MainWindow::showAbout() {
     QMessageBox::about(
         this, tr("About BrokenLiquid"),
         tr("<h3>BrokenLiquid %1</h3>"
-           "<p>Free, local, parametric 3D CAD.<br>Build %2 · Phase 0 preview</p>"
+           "<p>Free, local, parametric 3D CAD.<br>Build %2 · Phase 1 preview</p>"
            "<p>Built with Qt %3 (LGPL-3.0) and Open CASCADE Technology (LGPL-2.1 with exception).<br>"
            "Licence texts ship in the <i>licenses</i> folder.</p>")
             .arg(QString::fromLatin1(kVersion), QString::fromLatin1(kBuildId), QString::fromLatin1(qVersion())));
@@ -722,27 +1345,106 @@ void MainWindow::saveLayout() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    QStringList modified;
+    for (DocumentView* view : views()) {
+        if (view->document()->isModified()) {
+            modified << view->document()->title();
+        }
+    }
+    if (!modified.isEmpty() &&
+        QMessageBox::question(this, tr("Exit"),
+                              tr("These documents have changes that are not saved:\n\n%1\n\nSaving arrives in "
+                                 "Phase 3. Exit anyway?")
+                                  .arg(modified.join(QLatin1Char('\n')))) != QMessageBox::Yes) {
+        event->ignore();
+        return;
+    }
+    finishCommand(false);
     saveLayout();
     Settings::global().save();
     event->accept();
 }
 
-void MainWindow::runSmokeTest(const QString& pngPath) {
-    auto finish = [this, pngPath] {
-        QTimer::singleShot(800, this, [this, pngPath] {
-            const QImage image = grab().toImage();
-            const bool ok = !image.isNull() && image.save(pngPath);
-            spdlog::info("smoke test screenshot {} -> {}", pngPath.toStdString(), ok ? "saved" : "FAILED");
-            QApplication::exit(ok ? 0 : 2);
+// --- Smoke test ------------------------------------------------------------------------------------
+
+void MainWindow::runDemo(const QString& demo) {
+    if (demo.isEmpty() || !m_activeView) {
+        return;
+    }
+    if (demo == QLatin1String("measure")) {
+        // Two parallel planar faces of the first body, as far apart as possible.
+        const doc::Body& body = m_activeView->document()->model().bodies.front();
+        std::vector<std::pair<TopoDS_Shape, gp_Pln>> faces;
+        for (TopExp_Explorer it(body.shape, TopAbs_FACE); it.More(); it.Next()) {
+            if (const auto plane = planarFace(it.Current())) {
+                faces.emplace_back(it.Current(), *plane);
+            }
+        }
+        double best = -1.0;
+        std::pair<int, int> pick{-1, -1};
+        for (size_t i = 0; i < faces.size(); ++i) {
+            for (size_t j = i + 1; j < faces.size(); ++j) {
+                const gp_Dir& n = faces[i].second.Axis().Direction();
+                if (std::abs(n.Dot(faces[j].second.Axis().Direction())) < 0.9999) {
+                    continue;
+                }
+                const double gap = std::abs(gp_Vec(faces[i].second.Location(), faces[j].second.Location()).Dot(gp_Vec(n)));
+                if (gap > best) {
+                    best = gap;
+                    pick = {static_cast<int>(i), static_cast<int>(j)};
+                }
+            }
+        }
+        startCommand(std::make_unique<MeasureCommand>(*this));
+        if (pick.first >= 0) {
+            const Handle(AIS_InteractiveObject) object = m_activeView->objectOf(body.id);
+            const bool a = m_activeView->viewer()->select(object, faces[pick.first].first);
+            const bool b = m_activeView->viewer()->select(object, faces[pick.second].first);
+            spdlog::info("demo measure: picked faces {} / {}", a, b);
+        }
+    } else if (demo == QLatin1String("section") || demo == QLatin1String("section-right")) {
+        startCommand(std::make_unique<SectionCommand>(*this));
+        if (demo == QLatin1String("section-right")) {
+            if (auto* plane = m_panel->findChild<QComboBox*>()) {
+                plane->setCurrentIndex(SectionSpec::Right); // through both holes of the sample bracket
+            }
+        }
+    } else if (demo == QLatin1String("options")) {
+        QTimer::singleShot(0, this, [this] { showOptions(true); });
+    }
+}
+
+void MainWindow::runSmokeTest(const QString& pngPath, const QString& demo) {
+    auto finished = std::make_shared<bool>(false);
+    auto finish = [this, pngPath, demo, finished] {
+        if (*finished) {
+            return;
+        }
+        *finished = true;
+        QTimer::singleShot(400, this, [this, pngPath, demo] {
+            runDemo(demo);
+            QTimer::singleShot(900, this, [this, pngPath] {
+                QWidget* target = QApplication::activeModalWidget() ? QApplication::activeModalWidget() : this;
+                const QImage image = grab().toImage();
+                bool ok = !image.isNull() && image.save(pngPath);
+                if (target != this) {
+                    // A dialog demo: save the dialog next to the window shot.
+                    const QString dialogPng = QString(pngPath).replace(QLatin1String(".png"), QLatin1String("-dialog.png"));
+                    ok = target->grab().save(dialogPng) && ok;
+                }
+                spdlog::info("smoke test screenshot {} -> {}", pngPath.toStdString(), ok ? "saved" : "FAILED");
+                QApplication::exit(ok ? 0 : 2);
+            });
         });
     };
     auto check = [this, finish] {
-        if (m_firstFrame && !m_importBusy) {
+        if (m_importsBusy == 0 && (m_documents->count() == 0 || m_firstFrame)) {
             finish();
         }
     };
     connect(this, &MainWindow::ready, this, check);
     connect(this, &MainWindow::importFinished, this, check);
+    QTimer::singleShot(2000, this, check); // Home screen: nothing to wait for
     QTimer::singleShot(60000, this, [] {
         spdlog::error("smoke test timed out");
         QApplication::exit(3);

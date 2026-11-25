@@ -3,14 +3,20 @@
 Free, local, history-based parametric 3D CAD for Windows, with a workflow SolidWorks users will
 find familiar: sketch → feature → part → assembly → automatic engineering drawing.
 
-**Status:** Phase 0 complete (foundations and spikes). The app opens STEP files in a 3D viewer
-inside the full BrokenLiquid window layout; modelling commands are visible but marked "Coming in
-Phase N". The naming, drawing-projection and mate-solver spikes passed; results are in
-[docs/adr](docs/adr/README.md).
+**Status:** Phase 1 (app shell) in progress. You can open STEP files as parts (one tab each),
+measure distances, angles, lengths and areas, cut the model with a section view, and rename,
+hide, recolour or delete bodies with full undo/redo. The Home screen, Options dialog (system
+options and per-document units) and status-bar units switcher are in. Modelling commands are
+visible but marked "Coming in Phase N". The Phase 0 spikes (naming, drawing projection, mate
+solver) passed; results are in [docs/adr](docs/adr/README.md).
 
 ![Splash screen](docs/images/splash.png)
 
-![Main window with an imported STEP part](docs/images/main-window.png)
+![Measure: distance between two picked faces](docs/images/measure.png)
+
+![Section view through both holes, cut faces filled](docs/images/section.png)
+
+![Home screen with first-run setup](docs/images/home.png)
 
 ## Documents
 

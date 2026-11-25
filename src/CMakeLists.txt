@@ -5,7 +5,9 @@ add_library(bl_core STATIC
     core/Log.cpp
     core/Paths.cpp
     core/Settings.cpp
-    core/CrashHandler.cpp)
+    core/CrashHandler.cpp
+    core/Units.cpp           core/Units.h
+    core/UndoHistory.h)
 add_library(bl::core ALIAS bl_core)
 target_include_directories(bl_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -18,10 +20,18 @@ set_target_properties(bl_core PROPERTIES AUTOMOC OFF)
 # --- kernel: OCCT services (import/export, later naming + shape cache) ----------------------------
 add_library(bl_kernel STATIC
     kernel/StepIO.cpp
-    kernel/ShapeInfo.cpp)
+    kernel/ShapeInfo.cpp
+    kernel/Measure.cpp       kernel/Measure.h)
 add_library(bl::kernel ALIAS bl_kernel)
 target_link_libraries(bl_kernel PUBLIC bl::core bl::occt)
 set_target_properties(bl_kernel PROPERTIES AUTOMOC OFF)
+
+# --- doc: documents, their models and undo history ---------------------------------------------------
+add_library(bl_doc STATIC
+    doc/Document.cpp         doc/Document.h
+    doc/PartModel.h)
+add_library(bl::doc ALIAS bl_doc)
+target_link_libraries(bl_doc PUBLIC bl::kernel Qt6::Core Qt6::Gui)
 
 # --- render: OCCT viewer inside Qt ------------------------------------------------------------------
 add_library(bl_render STATIC
@@ -30,7 +40,7 @@ add_library(bl_render STATIC
     render/OcctViewer.h)
 add_library(bl::render ALIAS bl_render)
 target_link_libraries(bl_render
-    PUBLIC  bl::kernel Qt6::Widgets Qt6::OpenGLWidgets
+    PUBLIC  bl::kernel bl::doc Qt6::Widgets Qt6::OpenGLWidgets
     PRIVATE Qt6::OpenGL $<$<PLATFORM_ID:Windows>:opengl32>)
 
 # --- ui: main window and panels ---------------------------------------------------------------------
@@ -42,6 +52,14 @@ add_library(bl_ui STATIC
     ui/FeatureTreePanel.cpp  ui/FeatureTreePanel.h
     ui/ResourcePane.cpp      ui/ResourcePane.h
     ui/ViewHud.cpp           ui/ViewHud.h
+    ui/PropertyPanel.cpp     ui/PropertyPanel.h
+    ui/ConfirmationCorner.cpp ui/ConfirmationCorner.h
+    ui/InteractiveCommand.h
+    ui/DocumentView.cpp      ui/DocumentView.h
+    ui/MeasureCommand.cpp    ui/MeasureCommand.h
+    ui/SectionCommand.cpp    ui/SectionCommand.h
+    ui/HomePage.cpp          ui/HomePage.h
+    ui/OptionsDialog.cpp     ui/OptionsDialog.h
     ui/MainWindow.cpp        ui/MainWindow.h)
 add_library(bl::ui ALIAS bl_ui)
 target_link_libraries(bl_ui PUBLIC bl::render Qt6::Widgets Qt6::Svg Qt6::Concurrent)

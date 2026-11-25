@@ -62,7 +62,11 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption splashShot(QStringLiteral("splash-shot"),
                                         QStringLiteral("Show only the splash screen, save it to <png> and exit."),
                                         QStringLiteral("png"));
-    cli.addOptions({noSplash, smoke, newInstance, splashShot});
+    const QCommandLineOption smokeDemo(QStringLiteral("smoke-demo"),
+                                       QStringLiteral("With --smoke-test: run a demo (measure, section, options) "
+                                                      "before the screenshot."),
+                                       QStringLiteral("name"));
+    cli.addOptions({noSplash, smoke, smokeDemo, newInstance, splashShot});
     cli.addPositionalArgument(QStringLiteral("files"), QStringLiteral("STEP files to open."), QStringLiteral("[files...]"));
     cli.process(app);
 
@@ -95,8 +99,9 @@ int main(int argc, char* argv[]) {
     QElapsedTimer startup;
     startup.start();
     bl::Settings& settings = bl::Settings::global();
+    settings.load(bl::paths::settingsFile()); // first: it decides whether the splash shows
     QPointer<bl::app::SplashScreen> splash;
-    if (!cli.isSet(noSplash) && !smokeTest) {
+    if (!cli.isSet(noSplash) && !smokeTest && settings.get<bool>("app.showSplash", true)) {
         splash = new bl::app::SplashScreen();
         splash->showAnimated();
         splash->setStatus(QStringLiteral("Starting…"), 0.05);
@@ -111,7 +116,6 @@ int main(int argc, char* argv[]) {
     status(QStringLiteral("Loading settings…"), 0.15);
     bl::log::init(bl::paths::logDir());
     bl::crash::install(bl::paths::crashDumpDir());
-    settings.load(bl::paths::settingsFile());
 
     // 4. Geometry kernel.
     status(QStringLiteral("Loading geometry kernel…"), 0.35);
@@ -137,7 +141,7 @@ int main(int argc, char* argv[]) {
 
     status(QStringLiteral("Starting 3D view…"), 0.85);
     if (smokeTest) {
-        window->runSmokeTest(cli.value(smoke));
+        window->runSmokeTest(cli.value(smoke), cli.value(smokeDemo));
     }
 
     // 6. Show the window; keep the splash up at least ~700 ms so it never just flashes.

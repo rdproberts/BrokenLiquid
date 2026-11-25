@@ -4,8 +4,12 @@ include(GoogleTest)
 add_executable(bl_tests
     test_settings.cpp
     test_paths.cpp
-    test_kernel.cpp)
-target_link_libraries(bl_tests PRIVATE bl::kernel GTest::gtest GTest::gtest_main)
+    test_kernel.cpp
+    test_units.cpp
+    test_undo.cpp
+    test_measure.cpp
+    test_document.cpp)
+target_link_libraries(bl_tests PRIVATE bl::kernel bl::doc GTest::gtest GTest::gtest_main)
 set_target_properties(bl_tests PROPERTIES AUTOMOC OFF)
 
 # DISCOVERY_MODE PRE_TEST: the exe needs OCCT DLLs next to it, which vcpkg copies post-build.

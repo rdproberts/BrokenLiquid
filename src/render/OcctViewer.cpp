@@ -1,6 +1,7 @@
 #include "render/OcctViewer.h"
 
 #include <AIS_Shape.hxx>
+#include <Graphic3d_MaterialAspect.hxx>
 #include <Aspect_DisplayConnection.hxx>
 #include <Aspect_NeutralWindow.hxx>
 #include <Graphic3d_Camera.hxx>
@@ -15,13 +16,19 @@
 #include <Prs3d_LineAspect.hxx>
 #include <Prs3d_ShadingAspect.hxx>
 #include <Quantity_Color.hxx>
+#include <SelectMgr_Selection.hxx>
+#include <SelectMgr_SensitiveEntity.hxx>
 #include <Standard_Failure.hxx>
+#include <StdSelect_BRepOwner.hxx>
 
 #include <spdlog/spdlog.h>
 
 #include <QMouseEvent>
 #include <QSurfaceFormat>
 #include <QWheelEvent>
+
+#include <algorithm>
+#include <cmath>
 
 #include "render/NativeWindow.h"
 
@@ -163,6 +170,13 @@ void OcctViewer::configureLook() {
     m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalDynamic)->SetColor(hover);
     m_context->HighlightStyle(Prs3d_TypeOfHighlight_Selected)->SetColor(selected);
     m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalSelected)->SetColor(selected);
+    // Draw selected faces in the Top layer (depth inherited) so they win over the coincident
+    // shaded face instead of z-fighting with it; hidden faces stay hidden.
+    m_context->HighlightStyle(Prs3d_TypeOfHighlight_Selected)->SetZLayer(Graphic3d_ZLayerId_Top);
+    m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalSelected)->SetZLayer(Graphic3d_ZLayerId_Top);
+    // Picked faces highlight filled, not just their outline (display mode 1 = shaded).
+    m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalSelected)->SetDisplayMode(AIS_Shaded);
+    m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalDynamic)->SetDisplayMode(AIS_Shaded);
     m_context->SetPixelTolerance(4);
 }
 
@@ -273,6 +287,13 @@ void OcctViewer::paintGL() {
 
 void OcctViewer::updateView() { update(); }
 
+void OcctViewer::redraw() {
+    // Programmatic changes (display, highlight, clipping) need a full redraw; input handling
+    // only needs the immediate layer, which updateView() covers.
+    m_view->Invalidate();
+    update();
+}
+
 void OcctViewer::handleViewRedraw(const Handle(AIS_InteractiveContext)& ctx, const Handle(V3d_View)& view) {
     AIS_ViewController::handleViewRedraw(ctx, view);
     if (myToAskNextFrame) {
@@ -288,6 +309,10 @@ void OcctViewer::OnSelectionChanged(const Handle(AIS_InteractiveContext)& ctx, c
 
 void OcctViewer::mousePressEvent(QMouseEvent* event) {
     QOpenGLWidget::mousePressEvent(event);
+    if (event->button() == Qt::MiddleButton && !m_navigating) {
+        m_navigating = true;
+        pushViewState(); // rotate/pan/zoom drag starts: remember where we were
+    }
     if (UpdateMouseButtons(toPixels(event->position()), toVKeys(event->buttons()),
                            toVFlags(event->modifiers()), false)) {
         updateView();
@@ -299,6 +324,15 @@ void OcctViewer::mouseReleaseEvent(QMouseEvent* event) {
     if (UpdateMouseButtons(toPixels(event->position()), toVKeys(event->buttons()),
                            toVFlags(event->modifiers()), false)) {
         updateView();
+    }
+    if (event->button() == Qt::LeftButton && m_zoomAreaArmed) {
+        m_zoomAreaArmed = false;
+        configureNavigation(); // left drag selects again
+        unsetCursor();
+    }
+    if (event->button() == Qt::MiddleButton && m_navigating) {
+        m_navigating = false;
+        emit navigationFinished();
     }
 }
 
@@ -312,6 +346,11 @@ void OcctViewer::mouseMoveEvent(QMouseEvent* event) {
 
 void OcctViewer::wheelEvent(QWheelEvent* event) {
     QOpenGLWidget::wheelEvent(event);
+    // One history entry per burst of wheel steps.
+    if (!m_wheelTimer.isValid() || m_wheelTimer.elapsed() > 700) {
+        pushViewState();
+    }
+    m_wheelTimer.restart();
     double delta = event->angleDelta().y() / 8.0;
     if (m_reverseWheel) {
         delta = -delta;
@@ -330,6 +369,38 @@ void OcctViewer::leaveEvent(QEvent* event) {
     }
 }
 
+// --- View history ----------------------------------------------------------------------------------
+
+void OcctViewer::pushViewState() {
+    Handle(Graphic3d_Camera) saved = new Graphic3d_Camera();
+    saved->Copy(m_view->Camera());
+    m_viewHistory.push_back(saved);
+    constexpr size_t kMaxHistory = 40;
+    if (m_viewHistory.size() > kMaxHistory) {
+        m_viewHistory.erase(m_viewHistory.begin());
+    }
+}
+
+bool OcctViewer::previousView() {
+    if (m_viewHistory.empty()) {
+        return false;
+    }
+    m_view->Camera()->Copy(m_viewHistory.back());
+    m_viewHistory.pop_back();
+    m_view->Invalidate();
+    updateView();
+    return true;
+}
+
+void OcctViewer::armZoomArea() {
+    pushViewState();
+    m_zoomAreaArmed = true;
+    auto& gestures = ChangeMouseGestureMap();
+    gestures.UnBind(Aspect_VKeyMouse_LeftButton);
+    gestures.Bind(Aspect_VKeyMouse_LeftButton, AIS_MouseGesture_ZoomWindow);
+    setCursor(Qt::CrossCursor);
+}
+
 // --- Scene ---------------------------------------------------------------------------------------
 
 void OcctViewer::applyStyle(const Handle(AIS_InteractiveObject)& object) {
@@ -344,33 +415,56 @@ void OcctViewer::applyStyle(const Handle(AIS_InteractiveObject)& object) {
     m_context->SetDisplayMode(object, shaded ? AIS_Shaded : AIS_WireFrame, false);
 }
 
+bool OcctViewer::isTemporary(const Handle(AIS_InteractiveObject)& object) const {
+    return std::find(m_temporary.begin(), m_temporary.end(), object) != m_temporary.end();
+}
+
+void OcctViewer::activateSelection(const Handle(AIS_InteractiveObject)& object) {
+    m_context->Deactivate(object);
+    if (!m_pickFaces && !m_pickEdges && !m_pickVertices) {
+        m_context->Activate(object, 0); // whole body
+        return;
+    }
+    if (m_pickFaces) {
+        m_context->Activate(object, AIS_Shape::SelectionMode(TopAbs_FACE));
+    }
+    if (m_pickEdges) {
+        m_context->Activate(object, AIS_Shape::SelectionMode(TopAbs_EDGE));
+    }
+    if (m_pickVertices) {
+        m_context->Activate(object, AIS_Shape::SelectionMode(TopAbs_VERTEX));
+    }
+}
+
 void OcctViewer::display(const Handle(AIS_InteractiveObject)& object, bool fit) {
     m_context->Display(object, AIS_Shaded, 0, false);
     applyStyle(object);
     m_context->Redisplay(object, false);
-
-    // Pick faces, edges and vertices (mode numbers from AIS_Shape).
-    m_context->Deactivate(object);
-    m_context->Activate(object, AIS_Shape::SelectionMode(TopAbs_FACE));
-    m_context->Activate(object, AIS_Shape::SelectionMode(TopAbs_EDGE));
-    m_context->Activate(object, AIS_Shape::SelectionMode(TopAbs_VERTEX));
+    activateSelection(object);
 
     if (fit) {
-        fitAll();
-    } else {
-        updateView();
+        m_view->FitAll(0.08, false);
+        m_view->Invalidate();
     }
+    redraw();
+}
+
+void OcctViewer::remove(const Handle(AIS_InteractiveObject)& object) {
+    m_context->Remove(object, false);
+    redraw();
 }
 
 void OcctViewer::removeAll() {
     m_context->RemoveAll(false);
-    updateView();
+    m_temporary.clear();
+    redraw();
 }
 
 void OcctViewer::fitAll() {
+    pushViewState();
     m_view->FitAll(0.08, false);
     m_view->Invalidate();
-    updateView();
+    redraw();
 }
 
 void OcctViewer::setStandardView(StandardView v) {
@@ -388,9 +482,25 @@ void OcctViewer::setStandardView(StandardView v) {
     case StandardView::Dimetric: x = 0.9, y = 0.53, z = 1.0; break;
     case StandardView::Trimetric: x = 0.62, y = 0.42, z = 1.0; break;
     }
+    pushViewState();
     m_view->SetProj(x, y, z);
     m_view->SetUp(ux, uy, uz);
-    fitAll();
+    m_view->FitAll(0.08, false);
+    m_view->Invalidate();
+    redraw();
+}
+
+void OcctViewer::normalTo(const gp_Dir& n) {
+    pushViewState();
+    m_view->SetProj(n.X(), n.Y(), n.Z());
+    if (std::abs(n.Y()) > 0.99) {
+        m_view->SetUp(0.0, 0.0, -n.Y()); // looking along Y: keep -Z/+Z up like Top/Bottom
+    } else {
+        m_view->SetUp(0.0, 1.0, 0.0);
+    }
+    m_view->FitAll(0.08, false);
+    m_view->Invalidate();
+    redraw();
 }
 
 void OcctViewer::setDisplayStyle(DisplayStyle style) {
@@ -401,18 +511,141 @@ void OcctViewer::setDisplayStyle(DisplayStyle style) {
     NCollection_List<Handle(AIS_InteractiveObject)> objects;
     m_context->DisplayedObjects(objects);
     for (const Handle(AIS_InteractiveObject)& object : objects) {
+        if (isTemporary(object)) {
+            continue;
+        }
         applyStyle(object);
         m_context->Redisplay(object, false);
     }
     m_view->SetComputedMode(hlr);
     m_view->Invalidate();
-    updateView();
+    redraw();
 }
 
 void OcctViewer::setBackgroundGradient(const QColor& top, const QColor& bottom) {
     m_view->SetBgGradientColors(toOcct(top), toOcct(bottom), Aspect_GradientFillMethod_Vertical, false);
     m_view->Invalidate();
-    updateView();
+    redraw();
+}
+
+// --- Selection -------------------------------------------------------------------------------------
+
+std::vector<OcctViewer::Pick> OcctViewer::selection() const {
+    std::vector<Pick> picks;
+    for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
+        Pick p;
+        p.object = m_context->SelectedInteractive();
+        if (m_context->HasSelectedShape()) {
+            p.shape = m_context->SelectedShape();
+        }
+        picks.push_back(p);
+    }
+    return picks;
+}
+
+void OcctViewer::clearSelection() {
+    m_context->ClearSelected(false);
+    redraw();
+    emit selectionChanged(0);
+}
+
+void OcctViewer::deselect(int index) {
+    int i = 0;
+    for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected(), ++i) {
+        if (i == index) {
+            const Handle(SelectMgr_EntityOwner) owner = m_context->SelectedOwner();
+            m_context->AddOrRemoveSelected(owner, false);
+            break;
+        }
+    }
+    redraw();
+    emit selectionChanged(m_context->NbSelected());
+}
+
+bool OcctViewer::select(const Handle(AIS_InteractiveObject)& object, const TopoDS_Shape& sub) {
+    if (object.IsNull() || sub.IsNull()) {
+        return false;
+    }
+    const Handle(SelectMgr_Selection)& sel = object->Selection(AIS_Shape::SelectionMode(sub.ShapeType()));
+    if (sel.IsNull()) {
+        return false;
+    }
+    for (const Handle(SelectMgr_SensitiveEntity)& entity : sel->Entities()) {
+        const Handle(StdSelect_BRepOwner) owner =
+            Handle(StdSelect_BRepOwner)::DownCast(entity->BaseSensitive()->OwnerId());
+        if (!owner.IsNull() && owner->Shape().IsSame(sub)) {
+            if (!m_context->IsSelected(owner)) {
+                m_context->AddOrRemoveSelected(owner, false);
+            }
+            redraw();
+            emit selectionChanged(m_context->NbSelected());
+            return true;
+        }
+    }
+    return false;
+}
+
+void OcctViewer::setSelectionFilter(bool faces, bool edges, bool vertices) {
+    if (faces == m_pickFaces && edges == m_pickEdges && vertices == m_pickVertices) {
+        return;
+    }
+    m_pickFaces = faces, m_pickEdges = edges, m_pickVertices = vertices;
+    NCollection_List<Handle(AIS_InteractiveObject)> objects;
+    m_context->DisplayedObjects(objects);
+    for (const Handle(AIS_InteractiveObject)& object : objects) {
+        if (!isTemporary(object)) {
+            activateSelection(object);
+        }
+    }
+}
+
+// --- Temporary graphics ----------------------------------------------------------------------------
+
+void OcctViewer::showTemporary(const Handle(AIS_InteractiveObject)& object) {
+    m_context->Display(object, false);
+    m_context->Deactivate(object);
+    m_context->SetZLayer(object, Graphic3d_ZLayerId_Topmost);
+    m_temporary.push_back(object);
+    redraw();
+}
+
+void OcctViewer::clearTemporary() {
+    for (const Handle(AIS_InteractiveObject)& object : m_temporary) {
+        m_context->Remove(object, false);
+    }
+    m_temporary.clear();
+    redraw();
+}
+
+// --- Section view ----------------------------------------------------------------------------------
+
+void OcctViewer::setSection(const gp_Pln& cut, bool cap) {
+    // Graphic3d_ClipPlane keeps what lies on the side its normal points to; we keep the material
+    // behind the plane instead, so the capped cut face looks towards the viewer.
+    const gp_Pln plane(cut.Location(), cut.Axis().Direction().Reversed());
+    if (m_section.IsNull()) {
+        m_section = new Graphic3d_ClipPlane(plane);
+        m_view->AddClipPlane(m_section);
+    } else {
+        m_section->SetEquation(plane);
+    }
+    m_section->SetCapping(cap);
+    m_section->SetUseObjectMaterial(true); // cut faces take the part's colour...
+    m_section->SetCappingHatch(Aspect_HS_DIAGONAL_45);
+    m_section->SetCappingHatchOn(); // ...with a hatch, like a drawing section
+    m_section->SetOn(true);
+    m_view->Invalidate();
+    redraw();
+}
+
+void OcctViewer::clearSection() {
+    if (m_section.IsNull()) {
+        return;
+    }
+    m_view->RemoveClipPlane(m_section);
+    m_section.Nullify();
+    m_view->Invalidate();
+    redraw();
 }
 
 } // namespace bl::render
