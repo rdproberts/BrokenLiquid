@@ -12,10 +12,13 @@
 #include <QWidget>
 
 #include <map>
+#include <memory>
 #include <optional>
+#include <vector>
 
 namespace bl::doc {
 class Document;
+struct Body;
 }
 
 namespace bl::ui {
@@ -71,6 +74,9 @@ public:
     void setEditingSketch(const QUuid& id);
     // Redraws finished sketches (after a theme change).
     void refreshSketches() { sync(); }
+    // Shows these bodies instead of the model's (a command editing a feature shows the model as it
+    // was before that feature); nullopt goes back to the model.
+    void setBodiesOverride(std::optional<std::vector<doc::Body>> bodies);
 
 private:
     void sync();
@@ -90,6 +96,7 @@ private:
     std::map<QUuid, Handle(render::SketchPresentation)> m_sketches;
     QUuid m_editingSketch;
     std::optional<SectionSpec> m_section;
+    std::shared_ptr<const std::vector<doc::Body>> m_override;
     bool m_fitted = false;
 };
 

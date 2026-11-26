@@ -88,6 +88,44 @@ kernel::FaceRef faceRefFrom(const json& j) {
     return r;
 }
 
+json edgeRefJson(const kernel::EdgeRef& r) {
+    const kernel::EdgeSignature& s = r.signature;
+    return {{"faces", json::array({r.face1, r.face2})},
+            {"curve", s.curve},
+            {"middle", xyz(s.middle.XYZ())},
+            {"direction", xyz(s.direction.XYZ())},
+            {"straight", s.straight},
+            {"length", s.length}};
+}
+kernel::EdgeRef edgeRefFrom(const json& j) {
+    kernel::EdgeRef r;
+    const json& faces = j.at("faces");
+    r.face1 = faces.at(0).get<std::string>();
+    r.face2 = faces.at(1).get<std::string>();
+    r.signature.curve = j.value("curve", -1);
+    r.signature.middle = gp_Pnt(toXyz(j.at("middle")));
+    r.signature.direction = gp_Dir(toXyz(j.at("direction")));
+    r.signature.straight = j.value("straight", false);
+    r.signature.length = j.value("length", 0.0);
+    return r;
+}
+json edgesJson(const std::vector<kernel::EdgeRef>& edges) {
+    json out = json::array();
+    for (const kernel::EdgeRef& e : edges) {
+        out.push_back(edgeRefJson(e));
+    }
+    return out;
+}
+std::vector<kernel::EdgeRef> edgesFrom(const json& j) {
+    std::vector<kernel::EdgeRef> out;
+    if (j.contains("edges")) {
+        for (const json& e : j.at("edges")) {
+            out.push_back(edgeRefFrom(e));
+        }
+    }
+    return out;
+}
+
 QByteArray shapeBytes(const TopoDS_Shape& shape) {
     std::ostringstream out(std::ios::binary);
     BinTools::Write(shape, out);
@@ -117,8 +155,10 @@ bool savePart(const PartModel& m, const QString& path, QString* error) {
     model["units"] = {{"system", units::systemName(m.units.system)},
                       {"decimals", m.units.decimals},
                       {"angleDecimals", m.units.angleDecimals}};
-    model["counters"] = {
-        {"import", m.importCount}, {"sketch", m.sketchCount}, {"extrude", m.extrudeCount}, {"cut", m.cutCount}};
+    model["counters"] = {{"import", m.importCount},   {"sketch", m.sketchCount},
+                         {"extrude", m.extrudeCount}, {"cut", m.cutCount},
+                         {"revolve", m.revolveCount}, {"revolveCut", m.revolveCutCount},
+                         {"fillet", m.filletCount},   {"chamfer", m.chamferCount}};
     model["rollback"] = m.rollback;
 
     std::vector<std::pair<QString, QByteArray>> shapes;
@@ -150,6 +190,33 @@ bool savePart(const PartModel& m, const QString& path, QString* error) {
             j["direction2"] = p.direction2;
             j["depth2"] = p.depth2;
             j["merge"] = p.merge;
+            break;
+        }
+        case FeatureType::Revolve: {
+            const RevolveParams& p = f.revolve;
+            j["type"] = "revolve";
+            j["sketch"] = idOf(p.sketch);
+            j["cut"] = p.cut;
+            j["axis"] = p.axis;
+            j["angle"] = p.angle;
+            j["reverse"] = p.reverse;
+            j["midPlane"] = p.midPlane;
+            j["merge"] = p.merge;
+            break;
+        }
+        case FeatureType::Fillet:
+            j["type"] = "fillet";
+            j["radius"] = f.fillet.radius;
+            j["edges"] = edgesJson(f.fillet.edges);
+            break;
+        case FeatureType::Chamfer: {
+            const ChamferParams& p = f.chamfer;
+            j["type"] = "chamfer";
+            j["chamferType"] = p.type == ChamferType::TwoDistances ? "twoDistances" : "distance";
+            j["distance"] = p.distance;
+            j["distance2"] = p.distance2;
+            j["flip"] = p.flip;
+            j["edges"] = edgesJson(p.edges);
             break;
         }
         }
@@ -262,6 +329,10 @@ LoadedPart loadPart(const QString& path) {
         m.sketchCount = c.value("sketch", 0);
         m.extrudeCount = c.value("extrude", 0);
         m.cutCount = c.value("cut", 0);
+        m.revolveCount = c.value("revolve", 0);
+        m.revolveCutCount = c.value("revolveCut", 0);
+        m.filletCount = c.value("fillet", 0);
+        m.chamferCount = c.value("chamfer", 0);
         m.rollback = model.value("rollback", -1);
 
         for (const json& j : model.at("features")) {
@@ -292,6 +363,29 @@ LoadedPart loadPart(const QString& path) {
                 p.direction2 = j.value("direction2", false);
                 p.depth2 = j.value("depth2", 10.0);
                 p.merge = j.value("merge", true);
+            } else if (type == "revolve") {
+                f.type = FeatureType::Revolve;
+                RevolveParams& p = f.revolve;
+                p.sketch = uuid(j, "sketch");
+                p.cut = j.value("cut", false);
+                p.axis = j.value("axis", sketch::Id{0});
+                p.angle = j.value("angle", 360.0);
+                p.reverse = j.value("reverse", false);
+                p.midPlane = j.value("midPlane", false);
+                p.merge = j.value("merge", true);
+            } else if (type == "fillet") {
+                f.type = FeatureType::Fillet;
+                f.fillet.radius = j.value("radius", 2.0);
+                f.fillet.edges = edgesFrom(j);
+            } else if (type == "chamfer") {
+                f.type = FeatureType::Chamfer;
+                ChamferParams& p = f.chamfer;
+                p.type = j.value("chamferType", std::string("distance")) == "twoDistances" ? ChamferType::TwoDistances
+                                                                                         : ChamferType::Distance;
+                p.distance = j.value("distance", 1.0);
+                p.distance2 = j.value("distance2", 1.0);
+                p.flip = j.value("flip", false);
+                p.edges = edgesFrom(j);
             } else {
                 throw std::runtime_error("unknown feature type " + type);
             }

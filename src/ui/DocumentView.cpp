@@ -12,6 +12,8 @@
 
 #include <QVBoxLayout>
 
+#include <algorithm>
+
 namespace bl::ui {
 namespace {
 
@@ -69,13 +71,22 @@ DocumentView::DocumentView(doc::Document* document, CommandRegistry& registry, Q
     sync();
 }
 
+void DocumentView::setBodiesOverride(std::optional<std::vector<doc::Body>> bodies) {
+    m_override = bodies ? std::make_shared<const std::vector<doc::Body>>(std::move(*bodies)) : nullptr;
+    sync();
+}
+
 void DocumentView::sync() {
     const doc::PartModel& model = m_document->model();
     const Handle(AIS_InteractiveContext)& ctx = m_viewer->context();
+    const std::vector<doc::Body>& bodies = m_override ? *m_override : model.bodies;
+    auto shown = [&bodies](const QUuid& id) {
+        return std::any_of(bodies.begin(), bodies.end(), [&id](const doc::Body& b) { return b.id == id; });
+    };
 
     // Drop objects whose body is gone.
     for (auto it = m_objects.begin(); it != m_objects.end();) {
-        if (!model.body(it->first)) {
+        if (!shown(it->first)) {
             m_viewer->remove(it->second.object);
             it = m_objects.erase(it);
         } else {
@@ -83,7 +94,7 @@ void DocumentView::sync() {
         }
     }
 
-    for (const doc::Body& body : model.bodies) {
+    for (const doc::Body& body : bodies) {
         auto it = m_objects.find(body.id);
         const bool rebuild = it == m_objects.end() || !it->second.shape.IsSame(body.shape) || it->second.color != body.color;
         if (rebuild) {

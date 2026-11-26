@@ -11,7 +11,8 @@ add_executable(bl_tests
     test_document.cpp
     test_sketch_solver.cpp
     test_sketch_operations.cpp
-    test_features.cpp)
+    test_features.cpp
+    test_naming.cpp)
 target_link_libraries(bl_tests PRIVATE bl::kernel bl::doc bl::sketch GTest::gtest GTest::gtest_main)
 set_target_properties(bl_tests PROPERTIES AUTOMOC OFF)
 

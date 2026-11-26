@@ -76,6 +76,8 @@ add_library(bl_ui STATIC
     ui/SectionCommand.cpp    ui/SectionCommand.h
     ui/SketchEditor.cpp      ui/SketchEditor.h
     ui/ExtrudeCommand.cpp    ui/ExtrudeCommand.h
+    ui/RevolveCommand.cpp    ui/RevolveCommand.h
+    ui/EdgeFeatureCommand.cpp ui/EdgeFeatureCommand.h
     ui/HomePage.cpp          ui/HomePage.h
     ui/OptionsDialog.cpp     ui/OptionsDialog.h
     ui/MainWindow.cpp        ui/MainWindow.h)

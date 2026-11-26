@@ -10,7 +10,11 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
+#include <BRepFilletAPI_MakeChamfer.hxx>
+#include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepPrimAPI_MakeRevol.hxx>
+#include <Standard_Failure.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
@@ -330,6 +334,147 @@ NamedShape extrude(const Profile& profile, const gp_Dir& direction, double lengt
         }
     }
     return result;
+}
+
+NamedShape revolve(const Profile& profile, const gp_Ax1& axis, double angle, const std::string& feature,
+                   const std::string& sketchKey, std::string* error) {
+    if (profile.empty()) {
+        fail(error, "nothing to revolve");
+        return {};
+    }
+    if (std::abs(angle) < 1e-7) {
+        fail(error, "the angle is zero");
+        return {};
+    }
+    const bool full = std::abs(angle) > kTwoPi - 1e-9;
+    NamedShape result;
+    for (const TopoDS_Face& face : profile.faces) {
+        try {
+            BRepPrimAPI_MakeRevol revol(face, axis, full ? kTwoPi : angle, true);
+            revol.Build();
+            if (!revol.IsDone()) {
+                fail(error, "the revolve failed");
+                return {};
+            }
+            NamedShape part;
+            part.shape = revol.Shape();
+            for (const auto& [edge, curve] : profile.edges) {
+                const auto& generated = revol.Generated(edge);
+                for (auto it = generated.cbegin(); it != generated.cend(); ++it) {
+                    if (it->ShapeType() == TopAbs_FACE) {
+                        part.add(TopoDS::Face(*it), feature + "/Side(" + sketchKey + ":" + std::to_string(curve) + ")");
+                    }
+                }
+            }
+            if (!full) {
+                part.add(TopoDS::Face(revol.FirstShape()), feature + "/StartCap");
+                part.add(TopoDS::Face(revol.LastShape()), feature + "/EndCap");
+            }
+            if (!BRepCheck_Analyzer(part.shape).IsValid()) {
+                fail(error, "the revolved body is not valid (does the profile cross the axis?)");
+                return {};
+            }
+            if (result.isNull()) {
+                result = std::move(part);
+                continue;
+            }
+            result = fuse(result, part, error);
+            if (result.isNull()) {
+                return {};
+            }
+        } catch (const Standard_Failure& e) {
+            fail(error, std::string("the revolve failed: ") + e.what());
+            return {};
+        }
+    }
+    return result;
+}
+
+namespace {
+
+// Runs a fillet/chamfer maker and names its result; `role` names the new faces.
+template <class Maker>
+NamedShape finishEdgeOp(Maker& op, const NamedShape& body, const std::string& feature, const std::string& role,
+                        const char* what, std::string* error) {
+    op.Build();
+    if (!op.IsDone()) {
+        fail(error, std::string("the ") + what + " could not be made (is it too large for the faces next to the edge?)");
+        return {};
+    }
+    NamedShape r;
+    r.shape = singleSolidOrSelf(op.Shape());
+    carryNames(op, body, r);
+    nameGenerated(op, body, r, feature, role);
+    if (!BRepCheck_Analyzer(r.shape).IsValid()) {
+        fail(error, std::string("the ") + what + " made an invalid body (try a smaller size)");
+        return {};
+    }
+    return r;
+}
+
+} // namespace
+
+NamedShape fillet(const NamedShape& body, const std::vector<TopoDS_Edge>& edges, double radius,
+                  const std::string& feature, std::string* error) {
+    if (edges.empty()) {
+        fail(error, "no edges");
+        return {};
+    }
+    if (radius <= 1e-7) {
+        fail(error, "the radius must be more than zero");
+        return {};
+    }
+    try {
+        BRepFilletAPI_MakeFillet op(body.shape);
+        for (const TopoDS_Edge& e : edges) {
+            op.Add(radius, e);
+        }
+        return finishEdgeOp(op, body, feature, "Blend", "fillet", error);
+    } catch (const Standard_Failure& e) {
+        fail(error, std::string("the fillet failed: ") + e.what());
+        return {};
+    }
+}
+
+NamedShape chamfer(const NamedShape& body, const std::vector<ChamferEdge>& edges, double distance1,
+                   double distance2, const std::string& feature, std::string* error) {
+    if (edges.empty()) {
+        fail(error, "no edges");
+        return {};
+    }
+    if (distance1 <= 1e-7) {
+        fail(error, "the distance must be more than zero");
+        return {};
+    }
+    try {
+        BRepFilletAPI_MakeChamfer op(body.shape);
+        for (const ChamferEdge& e : edges) {
+            if (distance2 > 1e-7 && !e.face.IsNull()) {
+                op.Add(distance1, distance2, e.edge, e.face);
+            } else {
+                op.Add(distance1, e.edge);
+            }
+        }
+        return finishEdgeOp(op, body, feature, "Chamfer", "chamfer", error);
+    } catch (const Standard_Failure& e) {
+        fail(error, std::string("the chamfer failed: ") + e.what());
+        return {};
+    }
+}
+
+TopoDS_Shape facesNamed(const NamedShape& shape, const std::string& prefix) {
+    BRep_Builder builder;
+    TopoDS_Compound compound;
+    builder.MakeCompound(compound);
+    std::vector<TopoDS_Face> added;
+    for (const auto& [face, name] : shape.faces) {
+        if (name.rfind(prefix, 0) == 0 &&
+            std::none_of(added.begin(), added.end(), [&](const TopoDS_Face& f) { return f.IsSame(face); })) {
+            builder.Add(compound, face);
+            added.push_back(face);
+        }
+    }
+    return compound;
 }
 
 NamedShape fuse(const NamedShape& a, const NamedShape& b, std::string* error) {

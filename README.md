@@ -9,15 +9,19 @@ section view, and rename, hide, recolour or delete bodies with full undo/redo, w
 screen, Options dialog and status-bar units switcher.
 
 Part modelling so far: **Extruded Boss/Base** and **Extruded Cut** from a sketch's closed regions
-(Blind, Through All, Mid Plane, reverse, a second direction, merge or new body) with a live
-preview, a rebuild engine that re-runs only what changed, and a Feature Tree with the history,
-edit, rename, suppress, delete and a rollback bar. Sketches on a model face follow that face when
-upstream features change, through persistent face names ([ADR 0003](docs/adr/0003-persistent-naming.md));
-a face that really disappeared turns the sketch red instead of being guessed. Parts save and open
-as native **`.blpart`** files ([ADR 0008](docs/adr/0008-native-file-format.md)), with a `.bak` of
-the previous save.
+(Blind, Through All, Mid Plane, reverse, a second direction, merge or new body), **Revolved
+Boss/Base** and **Revolved Cut** about a centerline (angle, mid plane, reverse), and **Fillet** and
+**Chamfer** (equal or two distances) on picked edges, all with live previews. A rebuild engine
+re-runs only what changed, and the Feature Tree has the history, edit, rename, suppress, delete and
+a rollback bar. Sketches on faces and fillet/chamfer edges follow the model when upstream features
+change, through persistent face and edge names ([ADR 0003](docs/adr/0003-persistent-naming.md),
+checked by a naming torture suite); a face or edge that really disappeared turns the feature red
+instead of being guessed. Parts save and open as native **`.blpart`** files
+([ADR 0008](docs/adr/0008-native-file-format.md)), with a `.bak` of the previous save.
 
-![Part: the bracket sketch extruded 20 mm, with a sketch on its end face cut Through All](docs/images/part.png)
+![Part: the bracket extruded 20 mm, a hole cut from a sketch on its end face, corners filleted and hole edges chamfered](docs/images/part.png)
+
+![Revolve: a flanged shaft revolved from a half profile, with a chamfered end and filleted shoulders](docs/images/revolve.png)
 
 Sketching works on the Front, Top and Right planes or a flat face: lines (with automatic
 horizontal, vertical, coincident, midpoint and tangent relations from snapping), centerlines,

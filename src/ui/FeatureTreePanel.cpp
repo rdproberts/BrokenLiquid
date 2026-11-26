@@ -26,6 +26,9 @@ QString iconFor(const doc::Feature& f) {
     case doc::FeatureType::Import: return QStringLiteral("tree-body");
     case doc::FeatureType::Sketch: return QStringLiteral("sketch");
     case doc::FeatureType::Extrude: return f.extrude.cut ? QStringLiteral("extrude-cut") : QStringLiteral("extrude");
+    case doc::FeatureType::Revolve: return f.revolve.cut ? QStringLiteral("revolve-cut") : QStringLiteral("revolve");
+    case doc::FeatureType::Fillet: return QStringLiteral("fillet");
+    case doc::FeatureType::Chamfer: return QStringLiteral("chamfer");
     }
     return QStringLiteral("tree-folder");
 }
@@ -251,8 +254,8 @@ void FeatureTreePanel::rebuild() {
                 m_root->insertChild(m_root->indexOfChild(m_rollback), item);
             }
             m_historyItems << item;
-            if (f.type == doc::FeatureType::Extrude) {
-                if (const doc::Feature* sketch = model.feature(f.extrude.sketch)) {
+            if (!f.sketchUsed().isNull()) {
+                if (const doc::Feature* sketch = model.feature(f.sketchUsed())) {
                     historyItem(*sketch, item);
                 }
             }
@@ -343,7 +346,7 @@ void FeatureTreePanel::showFeatureMenu(QTreeWidgetItem* item, const QPoint& glob
     const int index = model.featureIndex(id);
     QMenu menu(this);
     QAction* edit = nullptr;
-    if (f->type == doc::FeatureType::Extrude) {
+    if (f->type != doc::FeatureType::Import && f->type != doc::FeatureType::Sketch) {
         edit = menu.addAction(icon(iconFor(*f)), tr("Edit Feature"));
     }
     QAction* rename = menu.addAction(tr("Rename"));

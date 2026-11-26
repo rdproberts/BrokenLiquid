@@ -728,6 +728,11 @@ bool OcctViewer::select(const Handle(AIS_InteractiveObject)& object, const TopoD
     return false;
 }
 
+void OcctViewer::setAdditivePicking(bool additive) {
+    ChangeMouseSelectionSchemes().Bind(Aspect_VKeyMouse_LeftButton,
+                                       additive ? AIS_SelectionScheme_XOR : AIS_SelectionScheme_Replace);
+}
+
 void OcctViewer::setSelectionFilter(bool faces, bool edges, bool vertices) {
     if (faces == m_pickFaces && edges == m_pickEdges && vertices == m_pickVertices) {
         return;

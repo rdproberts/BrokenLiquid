@@ -105,6 +105,9 @@ public:
     bool select(const Handle(AIS_InteractiveObject)& object, const TopoDS_Shape& sub);
     // Which sub-shape kinds can be picked (applies to all displayed model objects).
     void setSelectionFilter(bool faces, bool edges, bool vertices);
+    // true: a plain click adds or removes the pick (as Ctrl+click does), for commands that collect
+    // several picks (fillet edges). false: a click replaces the selection.
+    void setAdditivePicking(bool additive);
 
     // --- Temporary graphics (measure lines, previews): drawn on top, never selectable ------------
     void showTemporary(const Handle(AIS_InteractiveObject)& object);

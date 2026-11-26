@@ -16,6 +16,12 @@ std::string namingKey(const QUuid& id);
 
 // The solid an extrude sweeps before it is merged or cut (also the command's preview). `before`:
 // the bodies before the feature (Through All goes through them). Null with `error` on failure.
+// The solid a revolve sweeps from its sketch (before it is merged or cut).
+kernel::NamedShape revolveTool(const SketchFeature& sketch, const RevolveParams& params, const std::string& featureKey,
+                               QString* error = nullptr);
+// The line of `sketch` a revolve turns about: `axis` if set, else the first centerline (0: none).
+sketch::Id revolveAxis(const sketch::Sketch& sketch, sketch::Id axis);
+
 kernel::NamedShape extrudeTool(const SketchFeature& sketch, const ExtrudeParams& params, const BuildState& before,
                                const std::string& featureKey, QString* error = nullptr);
 

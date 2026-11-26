@@ -110,6 +110,11 @@ private:
     void deleteSketch(const QUuid& id);
     // Part features (Phase 3)
     void startExtrude(bool cut);
+    void startRevolve(bool cut);
+    void startEdgeFeature(doc::FeatureType type); // Fillet or Chamfer
+    // The sketch a new extrude/revolve should use: the open sketch (which is closed), the one
+    // selected in the Feature Tree, or the newest unused one. Null (with a status message) if none.
+    QUuid sketchForFeature();
     void editFeature(const QUuid& id);
     void renameFeature(const QUuid& id, const QString& name);
     void suppressFeature(const QUuid& id, bool suppressed);
@@ -120,6 +125,8 @@ private:
     bool confirmClose(DocumentView* view); // asks to save changes; false: cancelled
     void openPart(const QString& path);
     void runPartDemo(bool stopAtCut = false); // stopAtCut: leave the Cut-Extrude panel and preview open
+    void runFilletDemo(bool stopInPanel);     // after the part demo: fillet and chamfer edges
+    void runRevolveDemo(bool stopInPanel);    // a stepped shaft revolved from a half profile
     void updateSketchActions();
 
     // Edits through the active document (undoable)

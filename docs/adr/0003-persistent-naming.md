@@ -1,7 +1,8 @@
 # 0003. Persistent naming: generative names built from OCCT modelling history
 
-- **Status:** Accepted (Phase 0 spike passed; face names and references implemented in Phase 3,
-  `src/kernel/Naming.*`; edges and vertices follow with fillets)
+- **Status:** Accepted (Phase 0 spike passed; face and edge names, references and the naming
+  torture suite implemented in Phase 3: `src/kernel/Naming.*`, `tests/test_naming.cpp`; vertices
+  follow when a feature needs them)
 - **Date:** 2026-11-25
 - **Spike:** [`spikes/naming`](../../spikes/naming/main.cpp) — run as CTest `spike_naming`
 
@@ -59,3 +60,7 @@ instead of guessing. Resolution cost is negligible (whole spike < 0.1 s).
   segments, reordered features, split faces, patterns, shell. Each case asserts the referenced
   geometry, like the spike's ground-truth check.
 - Mates (ADR 0005) and drawing dimensions (ADR 0004) reuse the same references.
+- Repair thresholds (implementation): a face is accepted by signature alone below a mismatch of 2%
+  of the model size, an edge below 0.5%. Edges need the tighter limit because a chamfer or fillet
+  next to a lost edge leaves neighbours only about its own size away, and those must not pass for
+  the lost edge (torture case "chamfer upstream replaces the filleted edge").

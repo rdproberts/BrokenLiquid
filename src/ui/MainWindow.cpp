@@ -13,7 +13,9 @@
 #include "ui/CommandRegistry.h"
 #include "ui/ConfirmationCorner.h"
 #include "ui/DocumentView.h"
+#include "ui/EdgeFeatureCommand.h"
 #include "ui/ExtrudeCommand.h"
+#include "ui/RevolveCommand.h"
 #include "ui/FeatureTreePanel.h"
 #include "ui/HomePage.h"
 #include "ui/Icons.h"
@@ -25,11 +27,14 @@
 #include "ui/SketchEditor.h"
 #include "ui/ViewHud.h"
 
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <BRep_Builder.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Face.hxx>
@@ -93,7 +98,8 @@ const char* const kDocumentCommands[] = {
     "view.back", "view.left", "view.right", "view.top", "view.bottom", "view.isometric", "view.dimetric",
     "view.trimetric", "view.normalTo", "view.style.shadedEdges", "view.style.shaded", "view.style.hlr",
     "view.style.hlv", "view.style.wireframe", "evaluate.measure", "evaluate.massProps", "evaluate.check",
-    "window.next", "sketch.sketch", "file.save", "file.saveAs", "features.extrude", "features.extrudeCut", "edit.rebuild"};
+    "window.next", "sketch.sketch", "file.save", "file.saveAs", "features.extrude", "features.extrudeCut", "edit.rebuild",
+    "features.revolve", "features.revolveCut", "features.fillet", "features.chamfer"};
 
 // Sketch tools: command id -> tool (enabled while a sketch is open).
 struct SketchToolDef {
@@ -447,15 +453,11 @@ void MainWindow::registerCommands() {
         QString label;
         const char* icon;
     } features[] = {
-        {"features.revolve", tr("Revolved Boss/Base"), "revolve"},
         {"features.sweep", tr("Swept Boss/Base"), "sweep"},
         {"features.loft", tr("Lofted Boss/Base"), "loft"},
-        {"features.revolveCut", tr("Revolved Cut"), "revolve-cut"},
         {"features.sweepCut", tr("Swept Cut"), "sweep-cut"},
         {"features.loftCut", tr("Lofted Cut"), "loft-cut"},
         {"features.hole", tr("Hole Builder"), "hole"},
-        {"features.fillet", tr("Fillet"), "fillet"},
-        {"features.chamfer", tr("Chamfer"), "chamfer"},
         {"features.linearPattern", tr("Linear Pattern"), "linear-pattern"},
         {"features.circularPattern", tr("Circular Pattern"), "circular-pattern"},
         {"features.mirror", tr("Mirror"), "mirror"},
@@ -475,6 +477,15 @@ void MainWindow::registerCommands() {
     command("features.extrudeCut", tr("Extruded Cut"), "extrude-cut", QKeySequence(),
             tr("Cut a sketch's closed contours out of the bodies (uses the open, selected or newest sketch)"),
             [this] { startExtrude(true); });
+    command("features.revolve", tr("Revolved Boss/Base"), "revolve", QKeySequence(),
+            tr("Turn a sketch's closed contours about its centerline into a solid"), [this] { startRevolve(false); });
+    command("features.revolveCut", tr("Revolved Cut"), "revolve-cut", QKeySequence(),
+            tr("Cut the solid a sketch's contours sweep when turned about its centerline"),
+            [this] { startRevolve(true); });
+    command("features.fillet", tr("Fillet"), "fillet", QKeySequence(), tr("Round model edges with a radius"),
+            [this] { startEdgeFeature(doc::FeatureType::Fillet); });
+    command("features.chamfer", tr("Chamfer"), "chamfer", QKeySequence(), tr("Bevel model edges"),
+            [this] { startEdgeFeature(doc::FeatureType::Chamfer); });
     for (const auto& f : features) {
         planned(f.id, f.label, "Phase 3 (Part modelling)", f.icon);
     }
@@ -1335,10 +1346,40 @@ void MainWindow::deleteSketch(const QUuid& id) {
 // --- Part features ------------------------------------------------------------------------------------
 
 void MainWindow::startExtrude(bool cut) {
+    const QUuid sketch = sketchForFeature();
+    if (!sketch.isNull()) {
+        startCommand(std::make_unique<ExtrudeCommand>(*this, sketch, cut));
+    }
+}
+
+void MainWindow::startRevolve(bool cut) {
+    const QUuid sketch = sketchForFeature();
+    if (!sketch.isNull()) {
+        startCommand(std::make_unique<RevolveCommand>(*this, sketch, cut));
+    }
+}
+
+void MainWindow::startEdgeFeature(doc::FeatureType type) {
     doc::Document* d = activeDocument();
     if (!d || !m_activeView) {
         showStatus(tr("Open or create a part first."));
         return;
+    }
+    if (sketchEditor()) {
+        finishCommand(true); // leave the sketch; the edges are on the model
+    }
+    if (d->model().bodies.empty()) {
+        showStatus(tr("There is no body to work on yet: extrude or revolve a sketch first."), 6000);
+        return;
+    }
+    startCommand(std::make_unique<EdgeFeatureCommand>(*this, type));
+}
+
+QUuid MainWindow::sketchForFeature() {
+    doc::Document* d = activeDocument();
+    if (!d || !m_activeView) {
+        showStatus(tr("Open or create a part first."));
+        return {};
     }
     QUuid sketch;
     if (SketchEditor* editor = sketchEditor()) {
@@ -1361,13 +1402,13 @@ void MainWindow::startExtrude(bool cut) {
     }
     if (sketch.isNull() || !m.sketch(sketch)) {
         showStatus(tr("Draw a sketch first (Sketch tab), or select one in the Feature Tree."), 6000);
-        return;
+        return {};
     }
     if (const doc::Feature* f = m.consumerOf(sketch)) {
         showStatus(tr("%1 is already used by %2: edit that feature instead.").arg(m.sketch(sketch)->name, f->name), 6000);
-        return;
+        return {};
     }
-    startCommand(std::make_unique<ExtrudeCommand>(*this, sketch, cut));
+    return sketch;
 }
 
 void MainWindow::editFeature(const QUuid& id) {
@@ -1378,6 +1419,10 @@ void MainWindow::editFeature(const QUuid& id) {
     }
     if (f->type == doc::FeatureType::Extrude) {
         startCommand(std::make_unique<ExtrudeCommand>(*this, f->extrude.sketch, f->extrude.cut, id));
+    } else if (f->type == doc::FeatureType::Revolve) {
+        startCommand(std::make_unique<RevolveCommand>(*this, f->revolve.sketch, f->revolve.cut, id));
+    } else if (f->type == doc::FeatureType::Fillet || f->type == doc::FeatureType::Chamfer) {
+        startCommand(std::make_unique<EdgeFeatureCommand>(*this, f->type, id));
     } else if (f->type == doc::FeatureType::Sketch) {
         editSketch(id);
     }
@@ -1428,8 +1473,8 @@ void MainWindow::deleteFeature(const QUuid& id) {
         if (!x) {
             return false;
         }
-        if (x->type == doc::FeatureType::Extrude) {
-            if (doc::SketchFeature* s = m.sketch(x->extrude.sketch)) {
+        if (!x->sketchUsed().isNull()) {
+            if (doc::SketchFeature* s = m.sketch(x->sketchUsed())) {
                 s->visible = true; // its sketch stays, shown again
             }
         }
@@ -1936,6 +1981,8 @@ void MainWindow::runDemo(const QString& demo) {
             spdlog::info("demo sketch-convert: {} curves, {}", e->sketch().curves().size(),
                          sketch::statusName(e->solveResult().status));
         }
+    } else if (demo.startsWith(QLatin1String("revolve"))) {
+        runRevolveDemo(demo == QLatin1String("revolve-panel"));
     } else if (demo.startsWith(QLatin1String("sketch")) || demo.startsWith(QLatin1String("part"))) {
         // Draws an L bracket profile with the tools as a user would (clicks in sketch coordinates),
         // dimensions part of it and selects the bottom line (relations in the Property Panel).
@@ -2015,6 +2062,21 @@ void MainWindow::runDemo(const QString& demo) {
         }
         if (demo.startsWith(QLatin1String("part"))) {
             runPartDemo(demo == QLatin1String("part-preview"));
+            if (demo.startsWith(QLatin1String("part-fillet"))) {
+                runFilletDemo(demo == QLatin1String("part-fillet"));
+            }
+            if (demo == QLatin1String("part-fillet-edit")) {
+                // Edit Fillet1 again: the model goes back to before it, its edges picked.
+                for (const doc::Feature& f : activeDocument()->model().features) {
+                    if (f.type == doc::FeatureType::Fillet) {
+                        editFeature(f.id);
+                        break;
+                    }
+                }
+                if (auto* x = dynamic_cast<EdgeFeatureCommand*>(m_command.get())) {
+                    spdlog::info("demo part-fillet-edit: {} edges picked again", x->edgeCount());
+                }
+            }
             if (demo == QLatin1String("part-tree")) {
                 // Roll back above the cut and show the whole history expanded.
                 setRollback(3);
@@ -2150,6 +2212,186 @@ void MainWindow::runPartDemo(bool stopAtCut) {
     }
 }
 
+namespace {
+
+// Edges of a shape that pass a test, each once.
+template <class Test>
+std::vector<TopoDS_Edge> edgesWhere(const TopoDS_Shape& shape, Test test) {
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
+    TopExp::MapShapes(shape, TopAbs_EDGE, map);
+    std::vector<TopoDS_Edge> out;
+    for (int i = 1; i <= map.Extent(); ++i) {
+        const TopoDS_Edge e = TopoDS::Edge(map(i));
+        BRepAdaptor_Curve c(e);
+        if (test(c)) {
+            out.push_back(e);
+        }
+    }
+    return out;
+}
+
+gp_Pnt middleOf(const BRepAdaptor_Curve& c) { return c.Value(0.5 * (c.FirstParameter() + c.LastParameter())); }
+
+} // namespace
+
+void MainWindow::runFilletDemo(bool stopInPanel) {
+    // On the bracket of the part demo: round the outer vertical corners, bevel the hole edges.
+    doc::Document* d = activeDocument();
+    if (!d || d->model().bodies.empty()) {
+        return;
+    }
+    const QUuid bodyId = d->model().bodies.front().id;
+    const TopoDS_Shape shape = d->model().bodies.front().shape;
+    const std::vector<std::pair<double, double>> corners = {{60, 0}, {60, 10}, {0, 40}, {10, 40}, {0, 0}};
+    const std::vector<TopoDS_Edge> vertical = edgesWhere(shape, [&](const BRepAdaptor_Curve& c) {
+        if (c.GetType() != GeomAbs_Line || std::abs(c.Line().Direction().Z()) < 0.999) {
+            return false;
+        }
+        const gp_Pnt m = middleOf(c);
+        return std::any_of(corners.begin(), corners.end(), [&](const auto& xy) {
+            return std::abs(m.X() - xy.first) < 1e-6 && std::abs(m.Y() - xy.second) < 1e-6;
+        });
+    });
+    startEdgeFeature(doc::FeatureType::Fillet);
+    auto* fillet = dynamic_cast<EdgeFeatureCommand*>(m_command.get());
+    if (!fillet) {
+        return;
+    }
+    for (const TopoDS_Edge& e : vertical) {
+        fillet->pickEdge(bodyId, e);
+    }
+    fillet->setSize(2.0);
+    spdlog::info("demo part-fillet: {} edges picked", fillet->edgeCount());
+    if (stopInPanel) {
+        return;
+    }
+    finishCommand(true);
+    if (m_command) {
+        spdlog::error("demo part-fillet: fillet refused");
+        finishCommand(false, true);
+        return;
+    }
+    // Both ends of the two holes, where they meet the front and back faces.
+    const TopoDS_Shape filleted = d->model().bodies.front().shape;
+    const std::vector<TopoDS_Edge> rims = edgesWhere(filleted, [](const BRepAdaptor_Curve& c) {
+        if (c.GetType() != GeomAbs_Circle) {
+            return false;
+        }
+        const double z = c.Circle().Location().Z();
+        const double r = c.Circle().Radius();
+        return (std::abs(r - 2.5) < 1e-6 || std::abs(r - 3.0) < 1e-6) && // the two holes, not fillet arcs
+               (std::abs(z) < 1e-6 || std::abs(z - 20.0) < 1e-6);
+    });
+    startEdgeFeature(doc::FeatureType::Chamfer);
+    if (auto* chamfer = dynamic_cast<EdgeFeatureCommand*>(m_command.get())) {
+        for (const TopoDS_Edge& e : rims) {
+            chamfer->pickEdge(bodyId, e);
+        }
+        chamfer->setSize(0.6);
+        spdlog::info("demo part-fillet: {} hole rims picked", chamfer->edgeCount());
+    }
+    finishCommand(true);
+    if (m_command) {
+        spdlog::error("demo part-fillet: chamfer refused");
+        finishCommand(false, true);
+        return;
+    }
+    if (m_activeView) {
+        m_activeView->viewer()->setStandardView(render::StandardView::Isometric);
+    }
+    for (const doc::Feature& f : d->model().features) {
+        spdlog::info("demo part-fillet: {} {} {}", d->model().featureName(f).toStdString(), static_cast<int>(f.state),
+                     f.message.toStdString());
+    }
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(d->model().bodies.front().shape, props);
+    spdlog::info("demo part-fillet: volume {:.2f}", props.Mass());
+    if (!m_smokeOut.isEmpty()) {
+        spdlog::info("demo part-fillet: saved {}", saveDocument(m_activeView, false));
+    }
+}
+
+void MainWindow::runRevolveDemo(bool stopInPanel) {
+    // A flanged shaft: half profile on the Front plane about a centerline on X, revolved, then the
+    // shaft end chamfered and the shoulder filleted.
+    startSketchOn(referencePlane(0), referencePlaneName(0));
+    SketchEditor* e = sketchEditor();
+    if (!e) {
+        return;
+    }
+    using Tool = SketchEditor::Tool;
+    e->setTool(Tool::Centerline);
+    e->clickAt(-5, 0);
+    e->clickAt(75, 0);
+    e->setTool(Tool::Line);
+    for (const auto& [u, v] : std::initializer_list<std::pair<double, double>>{
+             {0, 0}, {70, 0}, {70, 6}, {50, 6}, {50, 10}, {12, 10}, {12, 22}, {4, 22}, {4, 10}, {0, 10}, {0, 0}}) {
+        e->clickAt(u, v);
+    }
+    e->setTool(Tool::Select);
+    startRevolve(false);
+    auto* revolve = dynamic_cast<RevolveCommand*>(m_command.get());
+    if (!revolve) {
+        spdlog::error("demo revolve: no revolve command");
+        return;
+    }
+    if (m_activeView) {
+        m_activeView->viewer()->setStandardView(render::StandardView::Isometric);
+    }
+    if (stopInPanel) {
+        revolve->setAngle(270.0); // shows the swept shape opened up
+        return;
+    }
+    finishCommand(true);
+    doc::Document* d = activeDocument();
+    if (m_command || !d || d->model().bodies.empty()) {
+        spdlog::error("demo revolve: revolve refused");
+        finishCommand(false, true);
+        return;
+    }
+    const QUuid bodyId = d->model().bodies.front().id;
+    auto circleAt = [](double x, double r) {
+        return [x, r](const BRepAdaptor_Curve& c) {
+            return c.GetType() == GeomAbs_Circle && std::abs(c.Circle().Location().X() - x) < 1e-6 &&
+                   std::abs(c.Circle().Radius() - r) < 1e-6;
+        };
+    };
+    startEdgeFeature(doc::FeatureType::Chamfer);
+    if (auto* chamfer = dynamic_cast<EdgeFeatureCommand*>(m_command.get())) {
+        for (const TopoDS_Edge& edge : edgesWhere(d->model().bodies.front().shape, circleAt(70, 6))) {
+            chamfer->pickEdge(bodyId, edge);
+        }
+        chamfer->setSize(1.0);
+    }
+    finishCommand(true);
+    startEdgeFeature(doc::FeatureType::Fillet);
+    if (auto* fillet = dynamic_cast<EdgeFeatureCommand*>(m_command.get())) {
+        const TopoDS_Shape shape = d->model().bodies.front().shape;
+        for (const auto& [x, r] : std::initializer_list<std::pair<double, double>>{{50, 6}, {12, 10}, {4, 22}, {12, 22}}) {
+            for (const TopoDS_Edge& edge : edgesWhere(shape, circleAt(x, r))) {
+                fillet->pickEdge(bodyId, edge);
+            }
+        }
+        fillet->setSize(1.0);
+        spdlog::info("demo revolve: {} edges to fillet", fillet->edgeCount());
+    }
+    finishCommand(true);
+    if (m_command) {
+        spdlog::error("demo revolve: {} refused", m_command->id().toStdString());
+        finishCommand(false, true);
+    }
+    if (m_activeView) {
+        m_activeView->viewer()->setStandardView(render::StandardView::Isometric);
+    }
+    for (const doc::Feature& f : d->model().features) {
+        spdlog::info("demo revolve: {} {} {}", d->model().featureName(f).toStdString(), static_cast<int>(f.state),
+                     f.message.toStdString());
+    }
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(d->model().bodies.front().shape, props);
+    spdlog::info("demo revolve: volume {:.2f}", props.Mass());
+}
+
 void MainWindow::runSmokeTest(const QString& pngPath, const QString& demo) {
     m_smokeOut = pngPath;
     auto finished = std::make_shared<bool>(false);
@@ -2159,7 +2401,8 @@ void MainWindow::runSmokeTest(const QString& pngPath, const QString& demo) {
         }
         *finished = true;
         QTimer::singleShot(400, this, [this, pngPath, demo] {
-            const bool fresh = demo.startsWith(QLatin1String("sketch")) || demo.startsWith(QLatin1String("part"));
+            const bool fresh = demo.startsWith(QLatin1String("sketch")) || demo.startsWith(QLatin1String("part")) ||
+                               demo.startsWith(QLatin1String("revolve"));
             if (fresh && !m_activeView) {
                 newPart(); // sketch and part demos start from an empty part
             }

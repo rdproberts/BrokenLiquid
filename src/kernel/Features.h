@@ -10,6 +10,7 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <gp_Ax3.hxx>
+#include <gp_Ax1.hxx>
 #include <gp_Dir.hxx>
 
 #include <string>
@@ -44,6 +45,31 @@ NamedShape extrude(const Profile& profile, const gp_Dir& direction, double lengt
 
 // Booleans that carry the names of both inputs into the result. On failure the result is null and
 // `error` explains.
+// Revolves the profile about `axis` by `angle` radians (2 pi: a full turn, no caps). Faces are
+// named like extrude faces: "<feature>/Side(<sketch>:<curve>)", "<feature>/StartCap", "/EndCap".
+NamedShape revolve(const Profile& profile, const gp_Ax1& axis, double angle, const std::string& feature,
+                   const std::string& sketchKey, std::string* error = nullptr);
+
+// Rounds `edges` of `body` with a constant radius. Edges tangent to a picked edge are rounded too
+// (OCCT follows smooth chains). New faces: "<feature>/Blend(<edge name>)", corners
+// "<feature>/Corner(...)".
+NamedShape fillet(const NamedShape& body, const std::vector<TopoDS_Edge>& edges, double radius,
+                  const std::string& feature, std::string* error = nullptr);
+
+// One edge to chamfer; `face` (one of the two faces at the edge) takes `distance1` when the two
+// distances differ.
+struct ChamferEdge {
+    TopoDS_Edge edge;
+    TopoDS_Face face;
+};
+// Bevels `edges` of `body`: equal setback `distance1` when `distance2` <= 0, otherwise distance1 on
+// each edge's `face` and distance2 on the other face. New faces: "<feature>/Chamfer(<edge name>)".
+NamedShape chamfer(const NamedShape& body, const std::vector<ChamferEdge>& edges, double distance1,
+                   double distance2, const std::string& feature, std::string* error = nullptr);
+
+// The faces of `shape` whose names start with `prefix` (e.g. "<feature>/"), as one compound.
+TopoDS_Shape facesNamed(const NamedShape& shape, const std::string& prefix);
+
 NamedShape fuse(const NamedShape& a, const NamedShape& b, std::string* error = nullptr);
 NamedShape cut(const NamedShape& body, const NamedShape& tool, std::string* error = nullptr);
 

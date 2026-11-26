@@ -50,7 +50,7 @@ struct SketchFeature {
     bool visible = true;
 };
 
-enum class FeatureType { Import, Sketch, Extrude };
+enum class FeatureType { Import, Sketch, Extrude, Revolve, Fillet, Chamfer };
 
 enum class FeatureState {
     Ok,
@@ -74,6 +74,41 @@ struct ExtrudeParams {
     bool merge = true;      // boss: merge with the bodies it touches (false: always a new body)
 
     bool operator==(const ExtrudeParams&) const = default;
+};
+
+// Revolved Boss/Base and Revolved Cut (PLAN.md 6.7): the sketch's closed regions turned about a
+// line of the same sketch (normally a centerline).
+struct RevolveParams {
+    QUuid sketch;
+    bool cut = false;
+    ::bl::sketch::Id axis = 0; // a line of the sketch; 0: its first centerline
+    double angle = 360.0;  // degrees, (0, 360]
+    bool reverse = false;  // turn the other way round the axis
+    bool midPlane = false; // half the angle each way from the sketch plane
+    bool merge = true;
+
+    bool operator==(const RevolveParams&) const = default;
+};
+
+// Fillet (constant radius) and Chamfer on picked model edges (PLAN.md 6.7). The edges are stored as
+// persistent references (ADR 0003) and found again on every rebuild.
+struct FilletParams {
+    std::vector<kernel::EdgeRef> edges;
+    double radius = 2.0;
+
+    bool operator==(const FilletParams&) const = default;
+};
+
+enum class ChamferType { Distance, TwoDistances };
+
+struct ChamferParams {
+    std::vector<kernel::EdgeRef> edges;
+    ChamferType type = ChamferType::Distance;
+    double distance = 1.0;
+    double distance2 = 1.0; // TwoDistances: on the second face of each edge
+    bool flip = false;      // TwoDistances: swap which face takes which distance
+
+    bool operator==(const ChamferParams&) const = default;
 };
 
 // A body imported from a STEP file (a dumb solid other features can build on).
@@ -109,6 +144,9 @@ struct Feature {
     QUuid body; // the body this feature creates (imports; bosses that start a new body)
     ImportParams import;
     ExtrudeParams extrude;
+    RevolveParams revolve;
+    FilletParams fillet;
+    ChamferParams chamfer;
 
     // Results of the last rebuild (not compared when deciding whether anything changed).
     FeatureState state = FeatureState::Ok;
@@ -117,7 +155,16 @@ struct Feature {
 
     bool sameInput(const Feature& o) const {
         return id == o.id && type == o.type && name == o.name && suppressed == o.suppressed && body == o.body &&
-               import == o.import && extrude == o.extrude;
+               import == o.import && extrude == o.extrude && revolve == o.revolve && fillet == o.fillet &&
+               chamfer == o.chamfer;
+    }
+    // The sketch a sketch-based feature (extrude, revolve) uses; null for others.
+    QUuid sketchUsed() const {
+        switch (type) {
+        case FeatureType::Extrude: return extrude.sketch;
+        case FeatureType::Revolve: return revolve.sketch;
+        default: return {};
+        }
     }
 };
 
@@ -132,6 +179,10 @@ struct PartModel {
     int sketchCount = 0;  // "Sketch1", ...
     int extrudeCount = 0; // "Boss-Extrude1", ...
     int cutCount = 0;     // "Cut-Extrude1", ...
+    int revolveCount = 0;    // "Revolve1", ...
+    int revolveCutCount = 0; // "Cut-Revolve1", ...
+    int filletCount = 0;     // "Fillet1", ...
+    int chamferCount = 0;    // "Chamfer1", ...
 
     Body* body(const QUuid& id) {
         for (Body& b : bodies) {
@@ -173,7 +224,7 @@ struct PartModel {
     // The feature that uses a sketch (it shows the sketch as its child in the tree), if any.
     const Feature* consumerOf(const QUuid& sketch) const {
         for (const Feature& f : features) {
-            if (f.type == FeatureType::Extrude && f.extrude.sketch == sketch) {
+            if (!sketch.isNull() && f.sketchUsed() == sketch) {
                 return &f;
             }
         }
