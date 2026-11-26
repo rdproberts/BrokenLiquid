@@ -1,9 +1,8 @@
 name: windows
 
+# Manual only for now (Actions tab > windows > Run workflow). The first run builds Qt and OCCT
+# from source, which takes a couple of hours on a hosted runner.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
