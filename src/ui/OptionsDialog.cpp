@@ -132,6 +132,24 @@ QWidget* OptionsDialog::makeAppSettings() {
         clear->setEnabled(false);
     });
     files->addRow(QString(), clear);
+    m_autosaveMinutes = new QSpinBox(paged.widget);
+    m_autosaveMinutes->setRange(0, 120);
+    m_autosaveMinutes->setSuffix(tr(" min"));
+    m_autosaveMinutes->setSpecialValueText(tr("Off"));
+    m_autosaveMinutes->setToolTip(tr("Unsaved changes are kept this often, so they can be recovered after a crash."));
+    files->addRow(tr("Autosave every"), m_autosaveMinutes);
+
+    QFormLayout* exporting = paged.addPage(tr("Export"), tr("Used by File > Export for STL, OBJ and glTF files. "
+                                                              "STEP files keep the exact geometry."));
+    m_meshQuality = new QComboBox(paged.widget);
+    m_meshQuality->addItem(tr("Coarse (small files)"), QStringLiteral("coarse"));
+    m_meshQuality->addItem(tr("Normal"), QStringLiteral("normal"));
+    m_meshQuality->addItem(tr("Fine (smooth curves)"), QStringLiteral("fine"));
+    exporting->addRow(tr("Mesh quality"), m_meshQuality);
+    m_stlFormat = new QComboBox(paged.widget);
+    m_stlFormat->addItem(tr("Binary"), false);
+    m_stlFormat->addItem(tr("Text (ASCII)"), true);
+    exporting->addRow(tr("STL files"), m_stlFormat);
 
     paged.list->setCurrentRow(0);
     return paged.widget;
@@ -171,6 +189,10 @@ void OptionsDialog::load() {
     selectUnit(m_defaultUnits, system.value_or(UnitSystem::Millimetre));
     m_defaultDecimals->setValue(s.get<int>("units.decimals", 2));
     m_recentMax->setValue(s.get<int>("files.recentMax", 10));
+    m_autosaveMinutes->setValue(s.get<int>("files.autosaveMinutes", 10));
+    const int quality = m_meshQuality->findData(QString::fromStdString(s.get<std::string>("export.meshQuality", "normal")));
+    m_meshQuality->setCurrentIndex(quality < 0 ? 1 : quality);
+    m_stlFormat->setCurrentIndex(s.get<bool>("export.stlAscii", false) ? 1 : 0);
 }
 
 void OptionsDialog::resetAll() {
@@ -193,6 +215,9 @@ void OptionsDialog::accept() {
           std::string(units::systemName(static_cast<UnitSystem>(m_defaultUnits->currentData().toInt()))));
     s.set("units.decimals", m_defaultDecimals->value());
     s.set("files.recentMax", m_recentMax->value());
+    s.set("files.autosaveMinutes", m_autosaveMinutes->value());
+    s.set("export.meshQuality", m_meshQuality->currentData().toString().toStdString());
+    s.set("export.stlAscii", m_stlFormat->currentData().toBool());
     s.save();
 
     if (m_initialUnits && m_docUnits) {

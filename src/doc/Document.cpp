@@ -88,6 +88,7 @@ void Document::redo() {
 
 void Document::regenerate() {
     rebuild(m_model);
+    ++m_revision;
     emit modelChanged();
 }
 
@@ -96,8 +97,14 @@ void Document::markSaved() {
     emit historyChanged();
 }
 
+void Document::markRecovered() {
+    m_history.setDirty();
+    emit historyChanged();
+}
+
 void Document::setModel(PartModel model) {
     m_model = std::move(model);
+    ++m_revision;
     emit modelChanged();
 }
 

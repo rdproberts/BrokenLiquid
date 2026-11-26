@@ -31,6 +31,7 @@ set_target_properties(bl_sketch PROPERTIES AUTOMOC OFF)
 # --- kernel: OCCT services (import/export, later naming + shape cache) ----------------------------
 add_library(bl_kernel STATIC
     kernel/StepIO.cpp
+    kernel/Export.cpp        kernel/Export.h
     kernel/ShapeInfo.cpp
     kernel/Measure.cpp       kernel/Measure.h
     kernel/Naming.cpp        kernel/Naming.h
@@ -44,6 +45,7 @@ add_library(bl_doc STATIC
     doc/Document.cpp         doc/Document.h
     doc/Rebuild.cpp          doc/Rebuild.h
     doc/PartFile.cpp         doc/PartFile.h
+    doc/Autosave.cpp         doc/Autosave.h
     doc/PartModel.h)
 add_library(bl::doc ALIAS bl_doc)
 target_link_libraries(bl_doc PUBLIC bl::kernel bl::sketch Qt6::Core Qt6::Gui PRIVATE Qt6::CorePrivate)

@@ -147,11 +147,14 @@ int main(int argc, char* argv[]) {
     // 6. Show the window; keep the splash up at least ~700 ms so it never just flashes.
     const qint64 minimumMs = 700;
     const qint64 wait = splash ? std::max<qint64>(0, minimumMs - startup.elapsed()) : 0;
-    QTimer::singleShot(wait, window, [window, splash, files, status] {
+    QTimer::singleShot(wait, window, [window, splash, files, status, smokeTest] {
         status(QStringLiteral("Ready"), 1.0);
         window->show();
         if (splash) {
             splash->finish();
+        }
+        if (!smokeTest) {
+            window->startAutosave(); // may first offer to recover documents from a crash
         }
         if (!files.isEmpty()) {
             window->openFile(files.front());

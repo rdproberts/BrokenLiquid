@@ -74,10 +74,12 @@ each phase has to run and pass its tests before the next one starts.
 In phase 3 so far you can extrude and revolve sketches to add or cut material, add fillets and
 chamfers, sketch on the faces of a model, and edit, suppress or roll back any feature. Faces and
 edges keep their names when you change something earlier in the history, so a fillet stays on
-the edge you picked. Parts save as `.blpart` files.
+the edge you picked. Parts save as `.blpart` files, and File > Export writes STEP, STL, OBJ
+and glTF (`.glb`). Unsaved changes are autosaved every few minutes, and after a crash BrokenLiquid
+offers to bring them back.
 
 Still to do in phase 3: sweep, loft, shell, draft, holes, patterns, mirror, reference geometry,
-equations, materials, mass properties, exports, autosave, and modelling our ten test parts.
+equations, materials, mass properties, and modelling our ten test parts.
 
 ### Screenshots
 
@@ -188,8 +190,8 @@ take a screenshot and quit with `--smoke-test out.png` (this needs a real GPU wi
 ```
 src/core     logging, settings, paths, units, crash dumps (no Qt)
 src/sketch   2D sketch model and constraint solver
-src/kernel   geometry: features, face and edge naming, measuring, STEP import/export
-src/doc      part document, rebuilds, .blpart files
+src/kernel   geometry: features, face and edge naming, measuring, STEP import, exports
+src/doc      part document, rebuilds, .blpart files, autosave
 src/render   3D viewer and sketch display
 src/ui       main window, command bar, feature tree, property panels, commands, themes, icons
 src/app      startup, splash screen, single-instance handling

@@ -44,6 +44,9 @@ private:
     QComboBox* m_defaultUnits = nullptr;
     QSpinBox* m_defaultDecimals = nullptr;
     QSpinBox* m_recentMax = nullptr;
+    QSpinBox* m_autosaveMinutes = nullptr;
+    QComboBox* m_meshQuality = nullptr;
+    QComboBox* m_stlFormat = nullptr;
     // Document settings
     QComboBox* m_docUnits = nullptr;
     QSpinBox* m_docDecimals = nullptr;

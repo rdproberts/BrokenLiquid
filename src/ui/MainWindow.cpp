@@ -4,6 +4,7 @@
 #include "core/Log.h"
 #include "core/Paths.h"
 #include "core/Settings.h"
+#include "doc/Autosave.h"
 #include "doc/Document.h"
 #include "doc/PartFile.h"
 #include "doc/Rebuild.h"
@@ -32,12 +33,15 @@
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <BRep_Builder.hxx>
+#include <Quantity_Color.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_ShapeMapHasher.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Face.hxx>
+#include <XCAFDoc_ColorTool.hxx>
+#include <XCAFDoc_ShapeTool.hxx>
 
 #include <spdlog/spdlog.h>
 
@@ -55,10 +59,12 @@
 #include <QFutureWatcher>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QPushButton>
 #include <QShortcut>
 #include <QStackedWidget>
 #include <QStatusBar>
@@ -98,7 +104,7 @@ const char* const kDocumentCommands[] = {
     "view.back", "view.left", "view.right", "view.top", "view.bottom", "view.isometric", "view.dimetric",
     "view.trimetric", "view.normalTo", "view.style.shadedEdges", "view.style.shaded", "view.style.hlr",
     "view.style.hlv", "view.style.wireframe", "evaluate.measure", "evaluate.massProps", "evaluate.check",
-    "window.next", "sketch.sketch", "file.save", "file.saveAs", "features.extrude", "features.extrudeCut", "edit.rebuild",
+    "window.next", "sketch.sketch", "file.save", "file.saveAs", "file.export", "features.extrude", "features.extrudeCut", "edit.rebuild",
     "features.revolve", "features.revolveCut", "features.fillet", "features.chamfer"};
 
 // Sketch tools: command id -> tool (enabled while a sketch is open).
@@ -146,6 +152,36 @@ std::vector<doc::Body> bodiesFrom(const kernel::ImportResult& result, const QStr
         bodies.push_back(std::move(body));
     }
     return bodies;
+}
+
+// The colour a body is drawn in: the user's, else the imported one, else the viewer's default.
+std::array<double, 3> exportColor(const doc::Body& body) {
+    if (body.color) {
+        return {body.color->redF(), body.color->greenF(), body.color->blueF()};
+    }
+    if (!body.xcaf.IsNull() && !body.label.IsNull()) {
+        TDF_Label label = body.label;
+        Quantity_Color color;
+        bool found = XCAFDoc_ColorTool::GetColor(label, XCAFDoc_ColorSurf, color) ||
+                     XCAFDoc_ColorTool::GetColor(label, XCAFDoc_ColorGen, color);
+        if (!found && XCAFDoc_ShapeTool::GetReferredShape(body.label, label)) {
+            found = XCAFDoc_ColorTool::GetColor(label, XCAFDoc_ColorSurf, color) ||
+                    XCAFDoc_ColorTool::GetColor(label, XCAFDoc_ColorGen, color);
+        }
+        if (found) {
+            std::array<double, 3> rgb{};
+            color.Values(rgb[0], rgb[1], rgb[2], Quantity_TOC_sRGB);
+            return rgb;
+        }
+    }
+    const QColor fallback(0xB8, 0xC2, 0xCE); // OcctViewer's default shading colour
+    return {fallback.redF(), fallback.greenF(), fallback.blueF()};
+}
+
+kernel::MeshQuality meshQualitySetting() {
+    const std::string q = Settings::global().get<std::string>("export.meshQuality", "normal");
+    return q == "coarse" ? kernel::MeshQuality::Coarse
+                         : q == "fine" ? kernel::MeshQuality::Fine : kernel::MeshQuality::Normal;
 }
 
 std::optional<gp_Pln> planarFace(const TopoDS_Shape& shape) {
@@ -301,6 +337,8 @@ void MainWindow::registerCommands() {
             [this] { saveDocument(m_activeView, false); });
     command("file.saveAs", tr("Save As…"), "save", QKeySequence::SaveAs, tr("Save the active part under a new name"),
             [this] { saveDocument(m_activeView, true); });
+    command("file.export", tr("Export…"), "export", QKeySequence(),
+            tr("Save the visible bodies as STEP, STL, OBJ or glTF"), [this] { exportDocument(); });
     planned("file.print", tr("Print…"), "Phase 5", "print", QKeySequence::Print);
     command("file.exit", tr("Exit"), "exit", QKeySequence(), tr("Close BrokenLiquid"), [this] { close(); });
     command("insert.body", tr("Imported Body (STEP)…"), "open", QKeySequence(),
@@ -597,7 +635,7 @@ void MainWindow::buildMenus() {
 
     QMenu* file = menuBar()->addMenu(tr("&File"));
     addAll(file, {"file.new.part", "file.new.assembly", "file.new.drawing", nullptr, "file.open", "file.close",
-                  "file.save", "file.saveAs", nullptr, "file.print", nullptr, "file.exit"});
+                  "file.save", "file.saveAs", nullptr, "file.export", nullptr, "file.print", nullptr, "file.exit"});
 
     QMenu* edit = menuBar()->addMenu(tr("&Edit"));
     addAll(edit, {"edit.undo", "edit.redo", nullptr, "edit.rebuild"});
@@ -938,6 +976,9 @@ bool MainWindow::closeDocument(int index) {
     }
     if (view == m_activeView) {
         finishCommand(false, true);
+    }
+    if (m_autosave) {
+        m_autosave->remove(view->document()->id());
     }
     m_documents->removeTab(index);
     view->deleteLater();
@@ -1524,6 +1565,9 @@ bool MainWindow::saveDocument(DocumentView* view, bool saveAs) {
     d->setFilePath(path);
     d->setTitle(QFileInfo(path).completeBaseName());
     d->markSaved();
+    if (m_autosave) {
+        m_autosave->remove(d->id());
+    }
     addRecentFile(path);
     Settings::global().set("files.lastDir", QFileInfo(path).absolutePath().toStdString());
     showStatus(tr("Saved %1.").arg(QDir::toNativeSeparators(path)));
@@ -1579,6 +1623,250 @@ void MainWindow::openPart(const QString& path) {
                       : tr("Opened %1.").arg(QFileInfo(path).fileName()),
                6000);
     spdlog::info("opened part {} ({} features, {} errors)", path.toStdString(), activeDocument()->model().features.size(), errors);
+}
+
+// --- Export ------------------------------------------------------------------------------------------
+
+std::vector<kernel::ExportBody> MainWindow::exportBodiesOf(const doc::Document& document, bool mesh) const {
+    std::vector<kernel::ExportBody> bodies;
+    for (const doc::Body& body : document.model().bodies) {
+        if (!body.visible || body.shape.IsNull()) {
+            continue;
+        }
+        kernel::ExportBody out;
+        out.name = body.name.toStdString();
+        // Meshing writes triangles into the shape; a copy keeps the one on screen untouched.
+        out.shape = mesh ? kernel::detachedCopy(body.shape) : body.shape;
+        out.color = exportColor(body);
+        bodies.push_back(std::move(out));
+    }
+    return bodies;
+}
+
+void MainWindow::exportDocument() {
+    doc::Document* d = activeDocument();
+    if (!d) {
+        return;
+    }
+    if (m_importsBusy > 0 || m_exportsBusy > 0) {
+        showStatus(tr("Still busy with the previous file…"), 3000);
+        return;
+    }
+    const auto visible = std::count_if(d->model().bodies.begin(), d->model().bodies.end(),
+                                       [](const doc::Body& b) { return b.visible && !b.shape.IsNull(); });
+    if (visible == 0) {
+        QMessageBox::information(this, tr("Export"), tr("%1 has no visible bodies to export.").arg(d->title()));
+        return;
+    }
+
+    Settings& s = Settings::global();
+    struct Filter {
+        kernel::ExportFormat format;
+        QString text;
+    };
+    const std::vector<Filter> filters{{kernel::ExportFormat::Step, tr("STEP (*.step *.stp)")},
+                                      {kernel::ExportFormat::Stl, tr("STL mesh (*.stl)")},
+                                      {kernel::ExportFormat::Obj, tr("OBJ mesh (*.obj)")},
+                                      {kernel::ExportFormat::Glb, tr("glTF binary (*.glb)")}};
+    const QString lastExtension = q(s.get<std::string>("export.lastFormat", "step"));
+    QStringList texts;
+    QString selected = filters.front().text;
+    for (const Filter& f : filters) {
+        texts << f.text;
+        if (lastExtension == QLatin1String(kernel::exportExtension(f.format))) {
+            selected = f.text;
+        }
+    }
+    const QString dir = q(s.get<std::string>("files.exportDir", s.get<std::string>("files.lastDir", "")));
+    const QString suggestion = QDir(dir).filePath(d->title() + QLatin1Char('.') + lastExtension);
+    QString path =
+        QFileDialog::getSaveFileName(this, tr("Export"), suggestion, texts.join(QStringLiteral(";;")), &selected);
+    if (path.isEmpty()) {
+        return;
+    }
+    std::optional<kernel::ExportFormat> format = kernel::exportFormatFor(path.toStdWString());
+    if (!format) {
+        format = kernel::ExportFormat::Step;
+        for (const Filter& f : filters) {
+            if (f.text == selected) {
+                format = f.format;
+            }
+        }
+        path += QLatin1Char('.') + QLatin1String(kernel::exportExtension(*format));
+    }
+    s.set("export.lastFormat", std::string(kernel::exportExtension(*format)));
+    s.set("files.exportDir", QFileInfo(path).absolutePath().toStdString());
+
+    kernel::ExportOptions options;
+    options.quality = meshQualitySetting();
+    options.stlAscii = s.get<bool>("export.stlAscii", false);
+    const bool mesh = kernel::isMeshFormat(*format);
+    std::vector<kernel::ExportBody> bodies = exportBodiesOf(*d, mesh);
+    const int count = static_cast<int>(bodies.size());
+
+    ++m_exportsBusy;
+    const QString name = QFileInfo(path).fileName();
+    statusBar()->showMessage(tr("Exporting %1…").arg(name));
+    QApplication::setOverrideCursor(Qt::BusyCursor);
+    auto* watcher = new QFutureWatcher<kernel::ExportResult>(this);
+    connect(watcher, &QFutureWatcher<kernel::ExportResult>::finished, this, [this, watcher, path, name, mesh, count] {
+        QApplication::restoreOverrideCursor();
+        --m_exportsBusy;
+        const kernel::ExportResult result = watcher->result();
+        watcher->deleteLater();
+        if (!result.ok) {
+            statusBar()->showMessage(tr("Export failed."), 5000);
+            QMessageBox::warning(this, tr("Export failed"), tr("%1\n\n%2").arg(name, q(result.error)));
+            return;
+        }
+        const QString where = QDir::toNativeSeparators(path);
+        showStatus(mesh ? tr("Exported %n body(s) to %1 (%2 triangles).", nullptr, count)
+                              .arg(where, QLocale().toString(static_cast<qulonglong>(result.triangles)))
+                        : tr("Exported %n body(s) to %1.", nullptr, count).arg(where),
+                   8000);
+    });
+    const std::filesystem::path file = path.toStdWString();
+    const kernel::ExportFormat f = *format;
+    watcher->setFuture(QtConcurrent::run([bodies = std::move(bodies), file, f, options] {
+        return kernel::exportBodies(bodies, file, f, options);
+    }));
+}
+
+// --- Autosave and recovery --------------------------------------------------------------------------
+
+void MainWindow::startAutosave(bool ask) {
+    if (!m_autosave) {
+        m_autosave = std::make_unique<doc::AutosaveSession>(QString::fromStdWString(paths::autosaveDir().wstring()));
+        if (!m_autosave->isValid()) {
+            m_autosave.reset();
+            return;
+        }
+        m_autosaveTimer = new QTimer(this);
+        connect(m_autosaveTimer, &QTimer::timeout, this, &MainWindow::autosaveNow);
+        // Exits that skip closeEvent (the smoke test) still count as normal ones.
+        connect(qApp, &QCoreApplication::aboutToQuit, this, &MainWindow::stopAutosave);
+        applyAutosaveInterval();
+    }
+    recoverDocuments(ask);
+}
+
+void MainWindow::stopAutosave() {
+    if (m_autosaveTimer) {
+        m_autosaveTimer->stop();
+    }
+    m_autosave.reset(); // removes this session's folder
+}
+
+void MainWindow::applyAutosaveInterval() {
+    if (!m_autosaveTimer) {
+        return;
+    }
+    const int minutes = std::clamp(Settings::global().get<int>("files.autosaveMinutes", 10), 0, 120);
+    if (minutes == 0) {
+        m_autosaveTimer->stop();
+    } else {
+        m_autosaveTimer->start(minutes * 60 * 1000);
+    }
+}
+
+void MainWindow::autosaveNow() {
+    if (!m_autosave) {
+        return;
+    }
+    std::vector<QUuid> open;
+    for (DocumentView* view : views()) {
+        const doc::Document* d = view->document();
+        open.push_back(d->id());
+        if (!d->isModified()) {
+            m_autosave->remove(d->id());
+            continue;
+        }
+        QString error;
+        if (!m_autosave->write(d->id(), d->model(), d->title(), d->filePath(), d->revision(), &error)) {
+            spdlog::warn("autosave of {} failed: {}", d->title().toStdString(), error.toStdString());
+        }
+    }
+    for (const QUuid& id : m_autosave->written()) {
+        if (std::find(open.begin(), open.end(), id) == open.end()) {
+            m_autosave->remove(id);
+        }
+    }
+}
+
+void MainWindow::recoverDocuments(bool ask) {
+    const std::vector<doc::RecoverableDocument> found = m_autosave->findRecoverable();
+    if (found.empty()) {
+        return;
+    }
+    spdlog::info("autosave: {} document(s) to recover", found.size());
+    if (ask) {
+        QStringList lines;
+        for (const doc::RecoverableDocument& r : found) {
+            const QString when = QLocale().toString(r.saved.toLocalTime(), QLocale::ShortFormat);
+            lines << (r.originalPath.isEmpty()
+                          ? tr("• %1, autosaved %2 (never saved)").arg(r.title, when)
+                          : tr("• %1, autosaved %2\n   %3").arg(r.title, when, QDir::toNativeSeparators(r.originalPath)));
+        }
+        QMessageBox box(QMessageBox::Question, tr("Recover Unsaved Work"),
+                        tr("BrokenLiquid did not close properly last time. Unsaved changes were kept for:"),
+                        QMessageBox::NoButton, this);
+        box.setInformativeText(lines.join(QLatin1Char('\n')));
+        QPushButton* recover = box.addButton(tr("Recover"), QMessageBox::AcceptRole);
+        QPushButton* discard = box.addButton(tr("Discard"), QMessageBox::DestructiveRole);
+        box.addButton(tr("Ask Later"), QMessageBox::RejectRole);
+        box.setDefaultButton(recover);
+        box.exec();
+        // The app may have quit meanwhile (Windows sign-out, the smoke test): the session is gone then.
+        if (!m_autosave) {
+            return;
+        }
+        const bool sure =
+            box.clickedButton() == discard &&
+            QMessageBox::question(this, tr("Discard"), tr("Delete the autosaved changes? This cannot be undone.")) ==
+                QMessageBox::Yes;
+        if (!m_autosave) {
+            return;
+        }
+        if (sure) {
+            for (const doc::RecoverableDocument& r : found) {
+                m_autosave->discard(r);
+            }
+            showStatus(tr("Autosaved changes deleted."));
+            return;
+        }
+        if (box.clickedButton() != recover) {
+            m_autosave->releaseRecoverable(); // asked again at the next start
+            return;
+        }
+    }
+
+    int recovered = 0;
+    for (const doc::RecoverableDocument& r : found) {
+        doc::LoadedPart loaded = doc::loadPart(r.file);
+        if (!loaded.ok) {
+            QMessageBox::warning(this, tr("Recover"), tr("%1 could not be recovered.\n\n%2").arg(r.title, loaded.error));
+            if (!m_autosave) {
+                return;
+            }
+            continue;
+        }
+        if (doc::Document* d = activeDocument(); d && d->isPristine() && d->filePath().isEmpty()) {
+            closeDocument(m_documents->indexOf(m_activeView));
+        }
+        auto document = std::make_unique<doc::Document>(doc::DocumentType::Part, r.title, std::move(loaded.model));
+        document->setFilePath(r.originalPath);
+        document->markRecovered();
+        addDocument(std::move(document));
+        m_autosave->discard(r);
+        ++recovered;
+    }
+    m_autosave->releaseRecoverable();
+    autosaveNow(); // straight into this session, so a second crash loses nothing
+    if (recovered > 0) {
+        showStatus(recovered == 1 ? tr("Recovered %1. Save it to keep the changes.").arg(activeDocument()->title())
+                                  : tr("Recovered %n documents. Save them to keep the changes.", nullptr, recovered),
+                   8000);
+    }
 }
 
 void MainWindow::toggleSection() {
@@ -1784,6 +2072,7 @@ void MainWindow::showOptions(bool documentPage) {
     if (const auto changed = dialog.changedDocumentUnits()) {
         setDocumentUnits(*changed);
     }
+    applyAutosaveInterval();
     m_home->refresh();
 }
 
@@ -1901,6 +2190,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         }
     }
     finishCommand(false, true);
+    stopAutosave(); // a normal exit: nothing to recover
     saveLayout();
     Settings::global().save();
     event->accept();
@@ -1952,6 +2242,9 @@ void MainWindow::runDemo(const QString& demo) {
         }
     } else if (demo == QLatin1String("options")) {
         QTimer::singleShot(0, this, [this] { showOptions(true); });
+    } else if (demo == QLatin1String("recover") || demo == QLatin1String("recover-ask")) {
+        // Recovers what a crashed session left in the autosave folder (portable mode in tests).
+        QTimer::singleShot(0, this, [this, demo] { startAutosave(demo == QLatin1String("recover-ask")); });
     } else if (demo == QLatin1String("sketch-convert")) {
         // Sketch on the largest flat face of the first body and convert that face's edges.
         const doc::Document* d = activeDocument();
@@ -2075,6 +2368,18 @@ void MainWindow::runDemo(const QString& demo) {
                 }
                 if (auto* x = dynamic_cast<EdgeFeatureCommand*>(m_command.get())) {
                     spdlog::info("demo part-fillet-edit: {} edges picked again", x->edgeCount());
+                }
+            }
+            if (demo == QLatin1String("part-export")) {
+                // The finished part in every export format, next to the screenshot.
+                const QString base = QFileInfo(m_smokeOut).absolutePath() + QStringLiteral("/demo-export.");
+                for (const auto format : {kernel::ExportFormat::Step, kernel::ExportFormat::Stl, kernel::ExportFormat::Obj,
+                                          kernel::ExportFormat::Glb}) {
+                    const auto bodies = exportBodiesOf(*activeDocument(), kernel::isMeshFormat(format));
+                    const QString file = base + QLatin1String(kernel::exportExtension(format));
+                    const kernel::ExportResult r = kernel::exportBodies(bodies, file.toStdWString(), format);
+                    spdlog::info("demo part-export: {} {} ({} triangles)", kernel::exportExtension(format),
+                                 r.ok ? std::string("ok") : r.error, r.triangles);
                 }
             }
             if (demo == QLatin1String("part-tree")) {
@@ -2402,7 +2707,7 @@ void MainWindow::runSmokeTest(const QString& pngPath, const QString& demo) {
         *finished = true;
         QTimer::singleShot(400, this, [this, pngPath, demo] {
             const bool fresh = demo.startsWith(QLatin1String("sketch")) || demo.startsWith(QLatin1String("part")) ||
-                               demo.startsWith(QLatin1String("revolve"));
+                               demo.startsWith(QLatin1String("revolve")) || demo.startsWith(QLatin1String("recover"));
             if (fresh && !m_activeView) {
                 newPart(); // sketch and part demos start from an empty part
             }

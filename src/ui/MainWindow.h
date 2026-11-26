@@ -1,5 +1,6 @@
 #pragma once
 
+#include "kernel/Export.h"
 #include "kernel/StepIO.h"
 #include "render/OcctViewer.h"
 #include "ui/DocumentView.h"
@@ -18,9 +19,11 @@ class QLineEdit;
 class QShortcut;
 class QStackedWidget;
 class QTabWidget;
+class QTimer;
 class QToolButton;
 
 namespace bl::doc {
+class AutosaveSession;
 class Document;
 }
 
@@ -49,6 +52,9 @@ public:
     // Adds the bodies of a STEP file to the active part (undoable).
     void insertFile(const QString& path);
     doc::Document* newPart();
+    // Starts autosaving modified documents and, if an earlier session crashed, offers to recover
+    // its documents (`ask` false: recovers them without asking, for the smoke test).
+    void startAutosave(bool ask = true);
 
     // Test hook: once the first frame and any pending import are done, optionally run a demo
     // ("measure", "section"), save a screenshot of the window to `pngPath` and quit with exit
@@ -124,6 +130,14 @@ private:
     bool saveDocument(DocumentView* view, bool saveAs);
     bool confirmClose(DocumentView* view); // asks to save changes; false: cancelled
     void openPart(const QString& path);
+    // Export (File > Export): visible bodies to STEP, STL, OBJ or glTF, on a worker thread.
+    void exportDocument();
+    std::vector<kernel::ExportBody> exportBodiesOf(const doc::Document& document, bool mesh) const;
+    // Autosave
+    void autosaveNow();
+    void applyAutosaveInterval();
+    void recoverDocuments(bool ask);
+    void stopAutosave();
     void runPartDemo(bool stopAtCut = false); // stopAtCut: leave the Extrude Cut panel and preview open
     void runFilletDemo(bool stopInPanel);     // after the part demo: fillet and chamfer edges
     void runRevolveDemo(bool stopInPanel);    // a stepped shaft revolved from a half profile
@@ -171,6 +185,9 @@ private:
     int m_sketchTab = -1;
     int m_partCounter = 0;
     int m_importsBusy = 0;
+    int m_exportsBusy = 0;
+    std::unique_ptr<doc::AutosaveSession> m_autosave;
+    QTimer* m_autosaveTimer = nullptr;
     bool m_firstFrame = false;
 };
 

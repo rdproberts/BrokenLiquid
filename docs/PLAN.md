@@ -791,7 +791,9 @@ thumb.png            256 × 256 preview (Home screen, Explorer thumbnails; plann
   UUID match finds moved files.
 - **Drawings** reference models the same way, and cache projected views for fast opening.
 - **Safe save:** write to a temp file, flush, then atomic replace; keep one `.bak`.
-- **Autosave** every N minutes (default 10) to `%LOCALAPPDATA%\BrokenLiquid\autosave\`.
+- **Autosave** every N minutes (default 10) to `%LOCALAPPDATA%\BrokenLiquid\autosave\`. Each running
+  window owns a locked session folder there. A folder left behind with no live owner means a
+  crash, and the next start offers to recover (or discard) its documents.
 
 ### 9.2 Exchange formats (v1)
 
@@ -802,7 +804,7 @@ thumb.png            256 × 256 preview (Home screen, Explorer thumbnails; plann
 | OCCT BREP | ✓ | ✓ | OCCT `BRepTools` |
 | STL | — | ✓ (quality settings) | OCCT `StlAPI` |
 | OBJ | — | ✓ | OCCT `RWObj` |
-| glTF 2.0 / GLB | — | ✓ | OCCT `RWGltf` |
+| glTF 2.0 / GLB | — | ✓ | own GLB writer (OCCT's `RWGltf` needs RapidJSON) |
 | PDF / SVG / PNG (drawings) | — | ✓ | Qt |
 | DXF (drawings) | — | ✓ | own R2000 writer |
 

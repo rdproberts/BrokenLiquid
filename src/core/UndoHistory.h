@@ -49,6 +49,8 @@ public:
     // Saved-state tracking: the document is unmodified when the undo depth equals the clean index.
     void setClean() { m_clean = static_cast<long>(m_undo.size()); }
     bool isClean() const { return m_clean == static_cast<long>(m_undo.size()); }
+    // No reachable state matches the saved file (e.g. a document recovered from an autosave).
+    void setDirty() { m_clean = kUnreachable; }
 
     void clear() {
         m_undo.clear();
