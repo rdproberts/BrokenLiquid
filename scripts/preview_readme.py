@@ -33,10 +33,7 @@ ABOUT = (
     "Free 3D CAD for Windows that runs on your own machine. Sketch, model parts, build assemblies "
     "and make drawings, with no account and no subscription."
 )
-TOPICS = [
-    "cad", "3d-cad", "parametric-cad", "mechanical-engineering", "opencascade", "qt6", "cpp20",
-    "windows", "constraint-solver", "engineering-drawing", "step", "offline-first",
-]
+TOPICS = ["cad", "3d-cad", "parametric-cad", "opencascade", "qt", "cpp"]
 
 # --------------------------------------------------------------------------------------------
 # Helpers
