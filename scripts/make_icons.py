@@ -128,7 +128,7 @@ ICONS = {
     "equations": f'<path d="M17 5H7l5 7-5 7h10" stroke-width="2"/><path d="M19 15h3M19 18h3" stroke="{A}" stroke-width="1.8"/>',
     # --- Sketch ------------------------------------------------------------------------------
     "sketch": f'<rect x="3" y="7" width="12" height="12" stroke-dasharray="2 2"/><path d="m14 14 7-7-3-3-7 7-1 4z" fill="{A}" fill-opacity=".5"/>',
-    "smart-dimension": f'<path d="M4 6v10M20 6v10"/><path d="M4 11h16" stroke="{A}"/><path d="m7 9-3 2 3 2M17 9l3 2-3 2" stroke="{A}"/><path d="M9 20h6"/>',
+    "dimension": f'<path d="M4 6v10M20 6v10"/><path d="M4 11h16" stroke="{A}"/><path d="m7 9-3 2 3 2M17 9l3 2-3 2" stroke="{A}"/><path d="M9 20h6"/>',
     "line": f'<path d="M5 19 19 5"/><circle cx="5" cy="19" r="2" fill="{A}" stroke="{A}"/><circle cx="19" cy="5" r="2" fill="{A}" stroke="{A}"/>',
     "centerline": '<path d="M3 21 21 3" stroke-dasharray="5 2 1 2"/>',
     "rectangle": f'<rect x="4" y="6" width="16" height="12" fill="{A}" fill-opacity=".2"/>'

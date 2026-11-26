@@ -70,14 +70,14 @@ void RevolveCommand::buildPanel() {
                 if (c.type == sketch::CurveType::Line && c.construction == (pass == 0)) {
                     m_axes.push_back(c.id);
                     names << QString::fromStdString(sketch->sketch.name(c.id)) +
-                                 (c.construction ? tr(" (centerline)") : QString());
+                                 (c.construction ? tr(" (centreline)") : QString());
                 }
             }
         }
     }
     PanelGroup* axis = panel.addGroup(tr("Axis of Revolution"));
     const auto current = std::find(m_axes.begin(), m_axes.end(), m_params.axis);
-    m_axis = axis->addChoice(tr("Axis"), names.isEmpty() ? QStringList{tr("(draw a centerline)")} : names,
+    m_axis = axis->addChoice(tr("Axis"), names.isEmpty() ? QStringList{tr("(draw a centreline)")} : names,
                              current == m_axes.end() ? 0 : static_cast<int>(current - m_axes.begin()));
     m_axis->setEnabled(!names.isEmpty());
 
@@ -191,7 +191,7 @@ doc::PartModel RevolveCommand::applied(QUuid* featureId) const {
     } else {
         doc::Feature f;
         f.type = doc::FeatureType::Revolve;
-        f.name = m_params.cut ? tr("Cut-Revolve%1").arg(++next.revolveCutCount) : tr("Revolve%1").arg(++next.revolveCount);
+        f.name = m_params.cut ? tr("RevolveCut%1").arg(++next.revolveCutCount) : tr("Revolve%1").arg(++next.revolveCount);
         f.body = QUuid::createUuid();
         f.revolve = m_params;
         *featureId = f.id;

@@ -1,8 +1,7 @@
-# BrokenLiquid — Research & Build Plan (v1.0)
+# BrokenLiquid: research and build plan for v1.0
 
-> **Status:** Draft 1 · 2026-11-25
-> **Product:** BrokenLiquid (BL) — free, local, history-based parametric 3D CAD for Windows
-> **Companion file:** [FUTURE_FEATURES.md](FUTURE_FEATURES.md) — everything deliberately left out of v1
+*Draft, November 2026. BrokenLiquid (BL) is free, local, history-based parametric 3D CAD for
+Windows. Everything left out of v1 is in [FUTURE_FEATURES.md](FUTURE_FEATURES.md).*
 
 ---
 
@@ -10,7 +9,7 @@
 
 1. [Vision and principles](#1-vision-and-principles)
 2. [v1 scope at a glance](#2-v1-scope-at-a-glance)
-3. [Research: SolidWorks 2023 user interface](#3-research-solidworks-2023-user-interface)
+3. [Research: the classic desktop CAD layout](#3-research-the-classic-desktop-cad-layout)
 4. [Research: modelling, assembly and drawing logic](#4-research-modelling-assembly-and-drawing-logic)
 5. [Technology decision](#5-technology-decision)
 6. [Architecture](#6-architecture)
@@ -28,24 +27,23 @@
 
 ## 1. Vision and principles
 
-BrokenLiquid is a free, offline, parametric 3D CAD application. A SolidWorks user should feel at home
-within minutes: same mental model (**sketch → feature → part → assembly → drawing**), similar screen
-layout, similar mouse and keyboard habits. It is *not* a clone: it has its own name, terminology,
-icons, visual identity and file formats.
+BrokenLiquid is a free, offline, parametric 3D CAD application. Anyone who has learned
+history-based 3D modelling should feel at home within minutes. It follows the standard workflow
+(**sketch → feature → part → assembly → drawing**), a conventional screen layout and the usual
+mouse and keyboard habits, with its own terminology, icons, look and file formats.
 
 **Principles**
 
-1. **Familiar, not copied.** Match layout and workflow conventions. Never reuse SolidWorks names that
-   are trademarks, icons, artwork or file formats (see the naming map in §3.4).
-2. **Local first.** No account, no login, no telemetry by default, works fully offline.
-   (The SolidWorks 2023 help has a "Logging into SOLIDWORKS" topic that uses 3DEXPERIENCE
-   credentials. BrokenLiquid does the opposite.)
-3. **Small v1, big runway.** v1 covers parts, assemblies, modelling and automatic drawings only.
-   Every architecture choice must leave room for the items in FUTURE_FEATURES.md without a rewrite.
-4. **Robust over clever.** A smaller feature set that never corrupts a model or silently breaks a
-   reference beats a large, fragile one.
-5. **Scriptable from day one.** Every UI command is a registered command with a Python entry point.
-   Anything a user can click, a script can do.
+1. **Familiar by design.** Follow the established conventions of history-based modelling for
+   layout and workflow, so nothing has to be learned from scratch. Names, icons, artwork and
+   file formats are designed for BrokenLiquid (terminology in §3.4).
+2. **Local first.** No account, no login and no telemetry by default. Works fully offline.
+3. **Small v1, room to grow.** v1 covers parts, assemblies and drawings only. Architecture
+   choices leave room for the items in FUTURE_FEATURES.md without a rewrite.
+4. **Reliable before clever.** A smaller feature set that never corrupts a model or silently
+   breaks a reference is better than a large, fragile one.
+5. **Scriptable.** Every UI command is a registered command with a Python entry point. Anything
+   a user can click, a script can do.
 
 ---
 
@@ -53,75 +51,75 @@ icons, visual identity and file formats.
 
 | Area | In v1 | Deferred (see FUTURE_FEATURES.md) |
 |---|---|---|
-| **App shell** | Splash screen, Home screen, SolidWorks-style layout, command search, Light and Dark themes, undo/redo, autosave and crash recovery | Mouse gestures, selection breadcrumbs, multiple viewports, toolbar customisation UI |
-| **Sketching** | 2D sketches on planes and planar faces, core entities, geometric relations, smart dimensions, constraint solver, status colours, trim/extend/offset/mirror/convert entities | 3D sketch, sketch text, blocks, sketch pictures (splines are a v1.1 candidate) |
-| **Part features** | Extrude, Revolve, Sweep, Loft (boss and cut), Fillet, Chamfer, Shell, Draft, Hole (simple + "Hole Builder Lite"), Linear/Circular Pattern, Mirror, reference planes/axes/points/coordinate systems, Combine, Move/Copy Body, equations and global variables, materials, mass properties, measure, section view, appearances | Sheet metal, weldments, surfaces, variable fillet, rib, dome, wrap, configurations, modelled threads |
+| **App shell** | Splash screen, Home screen, classic CAD layout, command search, Light and Dark themes, undo/redo, autosave and crash recovery | Mouse gestures, selection breadcrumbs, multiple viewports, toolbar customisation UI |
+| **Sketching** | 2D sketches on planes and planar faces, core entities, geometric relations, dimensions, constraint solver, status colours, trim/extend/offset/mirror, projecting model edges | 3D sketch, sketch text, blocks, sketch pictures (splines are a v1.1 candidate) |
+| **Part features** | Extrude, Revolve, Sweep, Loft (add and cut), Fillet, Chamfer, Shell, Draft, Hole (simple + "Hole Builder Lite"), Linear/Circular Pattern, Mirror, reference planes/axes/points/coordinate systems, Combine, Move/Copy Body, equations and global variables, materials, mass properties, measure, section view, appearances | Sheet metal, weldments, surfaces, variable fillet, rib, dome, wrap, configurations, modelled threads |
 | **Assemblies** | Insert components, fixed/floating, move/rotate with remaining freedom, standard mates, mate error reporting, interference check, BOM data, hide/suppress/transparency | Advanced and mechanical mates, exploded views, in-context editing, component patterns, motion |
-| **Drawings** | Sheets and templates (ISO and ANSI), Standard 3 View, model/projected/section/detail/isometric views, hidden-line projection, model-dimension import, auto-dimension, centre marks, hole callouts, notes, BOM table and auto balloons, **one-click Auto Drawing**, PDF/DXF/SVG export | GD&T, surface-finish and weld symbols, broken/broken-out/auxiliary views, revision tables, DWG |
-| **Data exchange** | Native `.blpart` / `.blasm` / `.bldraw`, STEP AP214/AP242 and IGES import/export, STL/OBJ/glTF export | 3MF, DWG, Parasolid, JT, native SolidWorks files |
+| **Drawings** | Sheets and templates (ISO and ANSI), three-view layout, model/projected/section/detail/isometric views, hidden-line projection, model-dimension import, auto-dimension, centre marks, hole callouts, notes, BOM table and auto balloons, **one-click Auto Drawing**, PDF/DXF/SVG export | GD&T, surface-finish and weld symbols, broken/broken-out/auxiliary views, revision tables, DWG |
+| **Data exchange** | Native `.blpart` / `.blasm` / `.bldraw`, STEP AP214/AP242 and IGES import/export, STL/OBJ/glTF export | 3MF, DWG, JT, proprietary kernel and native CAD formats |
 | **Extensibility** | Embedded Python API, headless command line, Python plugins | C++ plugin ABI, plugin marketplace |
 | **Shipping** | Windows 10/11 x64 installer and portable zip, file associations, signed binaries, update check, local crash dumps | Linux, macOS, Microsoft Store, delta updates |
 
 ---
 
-## 3. Research: SolidWorks 2023 user interface
+## 3. Research: the classic desktop CAD layout
 
-All findings below come from the official SolidWorks 2023 online help unless marked otherwise.
-Links are in §15.
+Most history-based desktop modellers have shared the same basic screen arrangement for many
+years, and people carry its habits from one tool to the next. BrokenLiquid uses that classic
+arrangement.
 
 ### 3.1 Screen layout
 
-The 2023 "User Interface Overview" page labels these main elements:
+The main elements of the classic layout:
 
 | # | Element | # | Element |
 |---|---|---|---|
-| 1 | Menu Bar | 6 | Selection Breadcrumbs |
-| 2 | Toolbars | 7 | FeatureManager design tree filter |
-| 3 | CommandManager | 8 | FeatureManager design tree |
-| 4 | Configuration Views | 9 | Status Bar |
-| 5 | PropertyManager | | |
+| 1 | Menu bar | 6 | Selection breadcrumbs |
+| 2 | Toolbars | 7 | Model tree filter |
+| 3 | Tabbed command toolbar | 8 | Model tree |
+| 4 | Configurations panel | 9 | Status bar |
+| 5 | Command property panel | | |
 
-In the graphics region: **Heads-up View toolbar**, **SOLIDWORKS Search**, **Help flyout**,
-**Task Pane** and the **Graphics Area**.
+Around the graphics area: a transparent view toolbar, search, a help menu and a resource
+sidebar on the right.
 
 ### 3.2 Component findings and BrokenLiquid decisions
 
-| SW 2023 component | What it does (2023 help) | BrokenLiquid v1 decision |
+| Classic component | What it does | BrokenLiquid v1 decision |
 |---|---|---|
-| **Menu Bar** | Menus, Quick Access tools, SOLIDWORKS Search, Help | **Adopt.** Logo menu flyout, quick-access buttons (New, Open, Save, Print, Undo, Redo, Rebuild, Options), command search box, Help |
-| **CommandManager** | Context-sensitive tabbed toolbar; toolbars embedded according to document type | **Adopt** as the *Command Bar*: tabs per document type, large icon + label buttons, flyout groups |
-| **FeatureManager design tree** | Outline of the active part, assembly or drawing; rollback bar; filter; arrow-key navigation; folders; History folder; "What's Wrong" rebuild errors and warnings; feature dependency view | **Adopt** as the *Feature Tree*: rollback bar, filter, folders, History, rebuild issues, parent/child view. **Skip:** Design Binder, Favorites, Comments, Markups, Tags |
-| **Flyout tree** | Shows the tree in the graphics area while the PropertyManager is open | **Adopt** (cheap, high value) |
-| **PropertyManager** | Title bar; OK, Cancel, Detailed Preview, Help, Keep Visible (pin); message box; collapsible group boxes; selection boxes that turn pink when active; Tab-key navigation; split bar; floatable and dockable | **Adopt** as the *Property Panel* with all listed behaviours. Active selection box uses the BL accent colour |
-| **Configuration Views** | Create, select and view multiple configurations | **Defer** |
-| **Selection Breadcrumbs** | Context view of the current selection's hierarchy | **v1.1** |
-| **Heads-up View toolbar** | Transparent toolbar in each viewport with the common view tools; custom views appear in the View Orientation flyout | **Adopt** as the *View HUD*: Zoom to Fit, Zoom to Area, Previous View, Section View, View Orientation, Display Style, Hide/Show Items, Edit Appearance, View Settings |
-| **Graphics Area** | Reference triad, triad manipulator, origin, Heads-up toolbar, Confirmation Corner, right-click advance selection, callouts and handles, shaded and dynamic previews, system colours, 1/2/4 viewports, image capture, video recording | **Adopt:** triad, origin, Confirmation Corner, callouts/handles, previews, colour options, image capture. **Defer:** multiple viewports, video |
-| **Task Pane** | SOLIDWORKS Resources, Design Library, File Explorer, View Palette, Appearances/Scenes/Decals, Custom Properties | **Adopt** as the *Resource Pane*: Home/Resources, File Explorer, View Palette, Appearances, Properties. Design Library is deferred |
-| **Status Bar** | Tool descriptions, rebuild indicator, sketch status and pointer coordinates, measurements of the selection, "editing part in assembly" message, unit-system switcher | **Adopt** all of these |
-| **Welcome dialog** | Home, Recent, Learn and Alerts tabs; Log In | **Adopt** as the *Home screen*: Home, Recent, Learn. No login, no alerts feed |
+| **Menu bar** | Menus, quick-access tools, search, help | **Adopt.** Logo menu flyout, quick-access buttons (New, Open, Save, Print, Undo, Redo, Rebuild, Options), command search box, Help |
+| **Tabbed command toolbar** | Context-sensitive tabbed toolbar; toolbars embedded according to document type | **Adopt** as the *Command Bar*: tabs per document type, large icon + label buttons, flyout groups |
+| **Model tree** | Outline of the active part, assembly or drawing; rollback bar; filter; arrow-key navigation; folders; history folder; list of rebuild errors and warnings; feature dependency view | **Adopt** as the *Feature Tree*: rollback bar, filter, folders, History, rebuild issues, parent/child view. **Skip:** attached-documents folder, favourites, comments, markups, tags |
+| **Pop-out tree** | Shows the tree over the graphics area while a command panel is open | **Adopt** (cheap and useful) |
+| **Command property panel** | Title bar; OK, Cancel, detailed preview, help, keep visible (pin); message box; collapsible group boxes; selection boxes that highlight when active; Tab-key navigation; split bar; floatable and dockable | **Adopt** as the *Property Panel* with all listed behaviours. Active selection box uses the BL accent colour |
+| **Configurations panel** | Create, select and view multiple configurations | **Defer** |
+| **Selection breadcrumbs** | Context view of the current selection's hierarchy | **v1.1** |
+| **In-viewport view toolbar** | Transparent toolbar in each viewport with the common view tools; custom views appear in the view orientation flyout | **Adopt** as the *View HUD*: Zoom to Fit, Zoom to Area, Previous View, Section View, View Orientation, Display Style, Hide/Show Items, Edit Appearance, View Settings |
+| **Graphics area** | Reference triad, triad manipulator, origin, view toolbar, OK/Cancel corner, right-click advance selection, callouts and handles, shaded and dynamic previews, system colours, 1/2/4 viewports, image capture, video recording | **Adopt:** triad, origin, Confirm Corner, callouts/handles, previews, colour options, image capture. **Defer:** multiple viewports, video |
+| **Resource sidebar** | Resources, a reusable parts library, file explorer, view palette, appearances/scenes/decals, custom properties | **Adopt** as the *Resource Pane*: Home/Resources, File Explorer, View Palette, Appearances, Properties. The parts library is deferred |
+| **Status bar** | Tool descriptions, rebuild indicator, sketch status and pointer coordinates, measurements of the selection, "editing part in assembly" message, unit-system switcher | **Adopt** all of these |
+| **Start-up dialog** | Home, recent files, learning material, alerts; online sign-in | **Adopt** as the *Home screen*: Home, Recent, Learn. No login, no alerts feed |
 | **Commands, menus, toolbars** | Menu bar, mouse gestures, toolbars, repeat last command, recent commands (last ten unique), customisation, multi-touch | **Adopt:** repeat last command, recent commands, keyboard customisation. **v1.1:** mouse gestures. **Later:** toolbar customisation, touch |
-| **Instant3D** | Create and modify geometry with drag handles and rulers | **v1.1** (extrude-depth arrows first) |
-| **Message Bars** | Document-specific information bar at the top of the window | **Adopt** (read-only, imported geometry, rebuild needed, recovered file) |
-| **Display Pane** | Overview of display settings per item | **Defer** |
+| **Drag handles** | Create and modify geometry with drag handles and rulers | **v1.1** (extrude-depth arrows first) |
+| **Message bars** | Document-specific information bar at the top of the window | **Adopt** (read-only, imported geometry, rebuild needed, recovered file) |
+| **Display overview** | Display settings of every item in one list | **Defer** |
 
-### 3.3 Interaction conventions to copy
+### 3.3 Interaction conventions
 
-These habits are what make SolidWorks *feel* like SolidWorks. BL implements all of them in v1
+These are the habits people bring with them from other modellers. BL supports all of them in v1
 unless marked.
 
-- **Accepting a feature:** Enter or OK; Esc or Cancel; right-click → OK; or the **Confirmation
+- **Accepting a feature:** Enter or OK; Esc or Cancel; right-click → OK; or the **Confirm
   Corner** (OK/Cancel icons, top-right of the graphics area; Exit Sketch/Cancel Sketch while
-  sketching). Pressing **D** moves the OK/Cancel buttons to the pointer and back (2023 help).
-- **PropertyManager selection boxes:** one box is active at a time; picks in the graphics area or
+  sketching). Pressing **D** moves the OK/Cancel buttons to the pointer and back.
+- **Property panel selection boxes:** one box is active at a time; picks in the graphics area or
   tree go into the active box; the right-click advance pointer moves to the next box.
 - **Live preview:** a translucent preview of the feature updates as values change, before OK.
 - **Sketch status colours:** under-defined entities are blue, fully defined are black, over-defined
-  are red (some SW versions show yellow). The status bar shows the sketch state. SolidWorks does not
-  force a fully defined sketch before you build a feature; BL behaves the same.
-  BL adds a colour-blind-safe alternative palette (SW 2023 also lists colour-blind accessibility).
+  are red. The status bar shows the sketch state. A sketch does not have to be fully defined
+  before it is used in a feature. BL adds a colour-blind-safe alternative palette.
 - **Over-defined sketches:** BL offers "make this dimension driven" and a repair assistant
-  (*Sketch Doctor*), equivalent to SketchXpert.
+  (*Sketch Doctor*).
 - **Rollback bar:** drag the bar in the tree to temporarily show the model at an earlier step;
   new features insert at the bar.
 - **Repeat last command** with Enter; **recent commands** list (last ten unique).
@@ -129,46 +127,39 @@ unless marked.
 - **Box selection:** drag left→right selects items fully inside; right→left selects items crossed.
 - **Mouse navigation:** see §7.6.
 
-### 3.4 Naming map (avoid trademarks)
+### 3.4 BrokenLiquid terminology
 
-Several SolidWorks UI names are registered trademarks (the help writes *FeatureManager®*). BL uses
-its own names for every product-specific term. Generic CAD terms (extrude, fillet, mate, sketch,
-view palette) stay as they are.
+BL gives each part of its interface a clear, consistent name. Generic CAD terms (extrude, fillet,
+mate, sketch, view palette) keep their usual meaning.
 
-| SolidWorks term | BrokenLiquid term |
+| Idea | BrokenLiquid term |
 |---|---|
-| CommandManager | Command Bar |
-| FeatureManager design tree | Feature Tree |
-| PropertyManager | Property Panel |
-| ConfigurationManager / configurations | Variants (future) |
-| Heads-up View toolbar | View HUD |
-| Task Pane | Resource Pane |
-| Confirmation Corner | Confirm Corner |
-| Instant3D | Live Handles |
-| Shortcut bar (S key) | Quick Bar |
-| Mouse gestures | Gesture Wheel (future) |
-| SketchXpert | Sketch Doctor |
-| Hole Wizard | Hole Builder |
-| Toolbox | Standard Parts Library (future) |
-| What's Wrong | Rebuild Issues |
-| Pack and Go | Pack & Bundle (future) |
-| DimXpert | Auto-Tolerance (future) |
-| Welcome dialog | Home screen |
-| `.sldprt` / `.sldasm` / `.slddrw` | `.blpart` / `.blasm` / `.bldraw` |
+| Tabbed, context-sensitive command toolbar | Command Bar |
+| History tree of the document | Feature Tree |
+| Options panel of the running command | Property Panel |
+| Sets of dimension and suppression values per part | Variants (future) |
+| Transparent view toolbar in the viewport | View HUD |
+| Resource sidebar on the right | Resource Pane |
+| OK/Cancel icons in the graphics area | Confirm Corner |
+| Drag handles and rulers on features | Live Handles |
+| Shortcut toolbar on a key | Quick Bar |
+| Radial mouse-gesture menu | Gesture Wheel (future) |
+| Sketch repair assistant | Sketch Doctor |
+| Guided hole creation | Hole Builder |
+| Library of standard fasteners and parts | Standard Parts Library (future) |
+| List of rebuild errors and warnings | Rebuild Issues |
+| Collect a design and its references for sharing | Pack & Bundle (future) |
+| Automatic tolerancing | Auto-Tolerance (future) |
+| Start-up screen | Home screen |
+| Native part / assembly / drawing files | `.blpart` / `.blasm` / `.bldraw` |
 
-### 3.5 What changed in 2023, and the takeaway
+### 3.5 Small extras for v1
 
-The 2023 What's New → User Interface section lists only four items: **Comments enhancements**,
-**enforcing legal file names** (leading and trailing spaces are stripped on save), **easier
-restore of factory default settings**, and **component name display** consistency in drawings.
-The 2023 *Top Enhancements* list is mostly feature work: coordinate-system improvements, BOM
-overrides and filters, cut-feature end conditions in assemblies, missing-mate-reference repair.
-
-**Takeaway:** the SolidWorks layout has been stable for many releases, and 2023 represents the
-mature "classic" arrangement. BL targets that arrangement. Small 2023 ideas worth keeping in v1:
+The classic layout has hardly changed in years, so BL can aim at it without chasing a moving
+target. A few small touches are worth having from the start:
 
 - One-click **Reset to defaults** in Options (and per-section reset).
-- **File-name sanitising** on save.
+- **File-name sanitising** on save (leading and trailing spaces stripped).
 - **Coordinate systems** as first-class reference geometry.
 
 ---
@@ -188,34 +179,35 @@ mature "classic" arrangement. BL targets that arrangement. Small 2023 ideas wort
 6. Editing any feature or dimension **regenerates** everything downstream.
 7. The **rollback bar** lets the user insert features earlier in history.
 
-This history-based, parent/child model is the core "building logic" BL reproduces.
+BL follows this history-based, parent/child model throughout.
 
 ### 4.2 Assembly logic
 
 - The **first component** inserted is fixed at the assembly origin. Later components **float**
   with six degrees of freedom until mates remove them.
-- **Standard mates** (SW help): angle, coincident, concentric, distance, lock, parallel,
+- **Standard mates:** angle, coincident, concentric, distance, lock, parallel,
   perpendicular, tangent. Each has an alignment option (aligned / anti-aligned) and a flip.
-- **Advanced mates** (SW help): limit, linear/linear coupler, path, profile centre, symmetric,
+- **Advanced mates:** limit, linear/linear coupler, path, profile centre, symmetric,
   width. These are deferred to v1.x.
 - Conflicting mates are reported as errors and the component is flagged in the tree.
 - Dragging a component moves it only within its remaining degrees of freedom.
 
 ### 4.3 Drawing logic
 
-- **Standard 3 View** creates three related orthographic views. The top and side views are linked
-  to the front view.
+- A **three-view** command creates three related orthographic views. The top and side views are
+  aligned to the front view.
 - The **View Palette** offers images of the eight standard orientations (Front, Right, Top, Back,
   Left, Bottom, Current, Isometric) plus custom views, to drag onto a sheet. A placed view starts
   projected-view placement automatically.
-- **Model Items** inserts dimensions and annotations that already exist in the model.
-- **Autodimension** adds horizontal and vertical reference dimensions as baseline, chain or ordinate.
-- **Auto Balloon** places balloons outside the view border with non-intersecting leaders.
-- **Document Properties** can insert balloons and dimensions marked for drawings automatically
-  into new views.
+- **Model dimensions** brings in the dimensions and annotations that already exist in the model.
+- **Auto-dimensioning** adds horizontal and vertical reference dimensions as baseline, chain or
+  ordinate.
+- **Auto-ballooning** places balloons outside the view border with leaders that don't cross.
+- A document setting can add balloons, and dimensions marked for drawings, to new views
+  automatically.
 
-**BL insight:** SolidWorks provides these pieces separately. BL's headline drawing feature,
-**Auto Drawing**, chains them into one command that produces a usable first-draft drawing (§6.9).
+These are usually separate commands. BL's **Auto Drawing** chains them into one command that
+produces a usable first-draft drawing (§6.9).
 
 ---
 
@@ -239,7 +231,7 @@ This history-based, parent/child model is the core "building logic" BL reproduce
 | Rust + egui/Slint + truck or Fornjot | Pure-Rust kernels | Excellent language, but the Rust B-rep kernels are early-stage and OCCT bindings are partial. Revisit for isolated modules later |
 | Electron/Tauri + opencascade.js (WebAssembly) | OCCT compiled to WASM | Slower kernel, memory limits, heavy runtime. Good fit for a future **web viewer**, not the main app |
 | Python + PySide6 + pythonOCC | OCCT via Python | Fastest to prototype, but slow at scale and harder to package. Python is used as the *scripting layer* instead |
-| Fork FreeCAD (LGPL) | OCCT | Large head start, but brings a different UI paradigm (workbenches), a different scene graph and a huge legacy codebase. Making it feel like SolidWorks means fighting it. Use FreeCAD as a **reference** and reuse individual LGPL components |
+| Fork an existing open-source CAD application (LGPL) | OCCT | Large head start, but brings a different UI paradigm, a different scene graph and a large legacy codebase. Making it feel like the classic layout means fighting it. Use open-source CAD code as a **reference** and reuse individual LGPL components |
 
 ### 5.3 Decision
 
@@ -253,7 +245,7 @@ This history-based, parent/child model is the core "building logic" BL reproduce
 | **Build** | **CMake + Ninja + vcpkg** (manifest mode), **CMakePresets** | Reproducible dependency builds; CI-friendly |
 | **Installer** | **Inno Setup 6** for v1 (WiX MSI later if needed) | Simple, free, per-user installs, file associations, signing hooks |
 
-**Why this answers "optimisation and accessibility in the long run":**
+**Why this holds up in the long run:**
 
 - *Optimisation:* everything performance-critical (kernel, regeneration, projection, rendering)
   runs as native C++ with no interop boundary. Regeneration and projection run on worker threads.
@@ -280,10 +272,10 @@ This history-based, parent/child model is the core "building logic" BL reproduce
 | FreeType (via OCCT) | Text rendering | FTL (BSD-style) |
 | WinSparkle (later) | Update UI | MIT |
 | SARibbon (optional) | Ribbon widget, if the custom Command Bar is not enough | MIT |
-| OndselSolver (evaluate) | Assembly constraint solver used by FreeCAD 1.0 | Reported LGPL-2.1; confirm the repo's LICENSE |
+| OndselSolver (reference only) | Open-source assembly solver, used as a reference for our own (ADR 0005) | Reported LGPL-2.1; confirm the repo's LICENSE |
 
-**Avoid** GPL-only libraries in the main executable (for example libdxfrw and SolveSpace's
-solver) so BrokenLiquid's own licence stays a free choice. GPL tools can still run as separate
+**Avoid** GPL-only libraries in the main executable (for example libdxfrw and some open-source
+sketch solvers) so BrokenLiquid's own licence stays a free choice. GPL tools can still run as separate
 processes later (FEA solvers, mesh tools).
 
 ### 5.5 Licensing implications
@@ -293,7 +285,7 @@ processes later (FEA solvers, mesh tools).
 - Ship all licence texts in `licenses/` and show them in **Help → About → Third-party licences**.
 - Qt's guidance warns that some app stores have rules that conflict with the LGPL. Check this
   before any Microsoft Store release.
-- BrokenLiquid's own licence is an open decision (§14).
+- BrokenLiquid's own licence is MIT (decided 2026-11-26, §14).
 
 ---
 
@@ -332,6 +324,9 @@ Rule: lower layers never include headers from upper layers. Documents and featur
 test **without Qt Widgets**, so the headless CLI and Python API reuse them unchanged.
 
 ### 6.2 Repository layout
+
+The planned layout. So far the part document and native files live in `src/doc` and the features
+in `src/kernel`; the README lists what exists today.
 
 ```
 broken-liquid/
@@ -394,16 +389,16 @@ PartDocument
   edge → fillet). Used for parent/child display, delete warnings ("Fillet2 depends on this") and
   to skip unaffected features later (v1 regenerates linearly from the first changed feature).
 - **Multibody:** a part can contain several solid bodies. Features choose "merge result" or
-  "new body", matching SolidWorks behaviour.
-- **Equations:** `"D1@Sketch1" = "Width" / 2` style. Parsed with muparser/exprtk; dependency
+  "new body", as usual in CAD.
+- **Equations:** `Sketch1.D1 = Width / 2` style. Parsed with muparser/exprtk; dependency
   order resolved by topological sort; cycles reported as errors.
 
-### 6.5 Persistent naming — the #1 architectural risk
+### 6.5 Persistent naming (the biggest architectural risk)
 
 The **topological naming problem**: after an upstream edit, OCCT may renumber faces and edges, so
-a fillet that referenced "edge 12" now hits the wrong edge. FreeCAD lived with this for years.
-FreeCAD 1.0 added an element-naming algorithm that *mitigates* it: it detects broken references
-and only auto-repairs when confident. BL must design for this **from day one**.
+a fillet that referenced "edge 12" now hits the wrong edge. Open-source CAD tools lived with this
+for years, and recent element-naming algorithms only *mitigate* it: they detect broken references
+and only auto-repair when confident. BL has to design for this from the start.
 
 **Approach: generative names + geometric fallback**
 
@@ -422,8 +417,8 @@ and only auto-repairs when confident. BL must design for this **from day one**.
    ask the user. Never guess silently.
 4. **Guide users toward stable models:** default sketch placement on reference planes, easy
    "sketch on plane offset from face", and a warning icon when a reference was repaired.
-5. **Spike in Phase 0:** compare this own naming map against OCCT's OCAF `TNaming` framework, and
-   read FreeCAD 1.0's element-map implementation. Record the decision as an ADR.
+5. **Spike in Phase 0:** compare our own naming map against OCCT's OCAF `TNaming` framework and
+   published element-map approaches. Record the decision as an ADR.
 
 Assemblies (mates) and drawings (dimensions) use the same persistent references, so this one
 system protects the whole product.
@@ -433,9 +428,9 @@ system protects the whole product.
 | Group | v1 contents |
 |---|---|
 | **Entities** | Point, Line, Centreline, Midpoint line, Rectangle (corner, centre, 3-point corner, 3-point centre, parallelogram), Circle (centre, perimeter), Arc (centre-point, tangent, 3-point), Slot (straight, centre-point), Polygon, construction toggle |
-| **Tools** | Sketch fillet, sketch chamfer, Offset, Convert Entities (project model edges), Trim (power trim), Extend, Mirror, Move/Copy/Rotate/Scale, linear and circular sketch patterns |
+| **Tools** | Sketch fillet, sketch chamfer, Offset, Project Edges (copy model edges into the sketch), Trim, Extend, Mirror, Move/Copy/Rotate/Scale, linear and circular sketch patterns |
 | **Relations** | Horizontal, Vertical, Coincident, Midpoint, Collinear, Parallel, Perpendicular, Tangent, Concentric, Equal, Symmetric, Fix, Merge |
-| **Dimensions** | Smart Dimension: linear (horizontal/vertical/aligned), angular, radius, diameter, arc length; driving vs driven; double-click to edit; values accept equations and units ("25.4mm", "1in") |
+| **Dimensions** | One Dimension command, the type follows the picks: linear (horizontal/vertical/aligned), angular, radius, diameter, arc length; driving vs driven; double-click to edit; values accept equations and units ("25.4mm", "1in") |
 | **Inference** | Snaps (endpoint, midpoint, centre, quadrant, intersection, on-curve), inference lines, automatic relations while drawing (horizontal/vertical/coincident/tangent) |
 | **Solver** | Own minimum-norm Gauss–Newton on Eigen ([ADR 0007](adr/0007-sketch-solver-own.md)). Degrees-of-freedom analysis drives status colours and the status-bar text: *Under Defined / Fully Defined / Over Defined* |
 | **Profiles** | Region finder builds closed loops and faces (with holes) from the sketch, so the user can pick regions for features (contour selection) |
@@ -444,10 +439,10 @@ system protects the whole product.
 
 | Feature | Key options | OCCT basis |
 |---|---|---|
-| Extruded Boss/Base & Cut | Blind, Through All, Up To Vertex, Up To Surface, Mid Plane; Direction 2; draft angle; flip side to cut; merge result | `BRepPrimAPI_MakePrism`, `BRepFeat_MakeDPrism`, booleans |
-| Revolved Boss & Cut | Axis from centreline or edge; angle; two directions | `BRepPrimAPI_MakeRevol` |
-| Swept Boss & Cut | Profile + path; keep normal constant / follow path | `BRepOffsetAPI_MakePipeShell` |
-| Lofted Boss & Cut | Ordered profiles; optional guide curves (v1.1) | `BRepOffsetAPI_ThruSections` |
+| Extrude and Extrude Cut | Blind, Through All, Up To Vertex, Up To Surface, Mid Plane; Direction 2; draft angle; flip side to cut; merge result | `BRepPrimAPI_MakePrism`, `BRepFeat_MakeDPrism`, booleans |
+| Revolve and Revolve Cut | Axis from centreline or edge; angle; two directions | `BRepPrimAPI_MakeRevol` |
+| Sweep and Sweep Cut | Profile + path; keep normal constant / follow path | `BRepOffsetAPI_MakePipeShell` |
+| Loft and Loft Cut | Ordered profiles; optional guide curves (v1.1) | `BRepOffsetAPI_ThruSections` |
 | Fillet | Constant radius; edges, faces, features; tangent propagation | `BRepFilletAPI_MakeFillet` |
 | Chamfer | Distance-distance, angle-distance | `BRepFilletAPI_MakeChamfer` |
 | Shell | Faces to remove, thickness, outward option | `BRepOffsetAPI_MakeThickSolid` |
@@ -468,7 +463,7 @@ plane), Check Geometry (`BRepCheck_Analyzer`), Rebuild Issues list.
 with density, plus user materials in JSON.
 
 **Robustness policy:** fuzzy booleans (`SetFuzzyValue`), `ShapeFix` healing on import, tolerance
-checks after each feature, and a clear error when OCCT fails — never a half-built body.
+checks after each feature, and a clear error when OCCT fails. Never a half-built body.
 
 ### 6.8 Assembly subsystem
 
@@ -479,7 +474,8 @@ checks after each feature, and a clear error when OCCT fails — never a half-bu
 - **Mates (v1):** Coincident, Parallel, Perpendicular, Tangent, Concentric, Distance, Angle, Lock,
   each with aligned/anti-aligned and flip. Mates live in a *Mates* folder in the tree and under
   each component.
-- **Mate solver.** Recommendation: **build our own on Eigen** and use OndselSolver as reference.
+- **Mate solver:** our own on Eigen, with OndselSolver as a reference
+  ([ADR 0005](adr/0005-assembly-solver.md)).
   - Each floating component has 7 parameters (position + unit quaternion).
   - Each mate becomes residual equations between referenced geometry (planes, axes, points).
   - Solve with Levenberg–Marquardt from the current positions (minimal movement = predictable
@@ -487,11 +483,10 @@ checks after each feature, and a clear error when OCCT fails — never a half-bu
   - The Jacobian rank gives remaining degrees of freedom: drive drag behaviour and
     *under/fully/over-defined* status per component.
   - Redundant or conflicting mates are detected and named in the error message.
-  - Phase 0 spike decides between this and OndselSolver; record as ADR.
 - **Drag to move:** solve with the dragged point as a soft target so motion respects mates.
 - **Interference detection:** pairwise bounding-box filter, then `BRepAlgoAPI_Common` volume;
   results listed and highlighted in red.
-- **BOM data:** per component — part number, description, material, quantity, custom properties.
+- **BOM data:** per component: part number, description, material, quantity, custom properties.
   Feeds drawing BOM tables.
 - **Saving:** assembly saves only its own file; part edits save to their own files. Missing
   references open a "locate file" dialog.
@@ -505,18 +500,18 @@ checks after each feature, and a clear error when OCCT fails — never a half-bu
 | Sheets | ISO A4–A0 and ANSI A–E; landscape/portrait; multiple sheets per drawing |
 | Templates | Sheet format (border, title block) as an editable file. Title-block fields bind to properties (`{PartNumber}`, `{Material}`, `{Scale}`, `{Sheet}`, `{Date}`, `{DrawnBy}`) |
 | Standards | **ISO** (first-angle projection) and **ANSI** (third-angle). Line weights and types per standard: thick visible, thin dashed hidden, chain centrelines; text heights; arrow styles; decimal places |
-| Views | Standard 3 View, Model View (eight orientations, like the View Palette), Projected, Section (full; hatched cut faces), Detail (circle + scaled view), Isometric (HLR lines, optional shaded) |
+| Views | Three-view layout, Model View (eight orientations, like the View Palette), Projected, Section (full; hatched cut faces), Detail (circle + scaled view), Isometric (HLR lines, optional shaded) |
 | Engine | OCCT hidden-line removal: **`HLRBRep_PolyAlgo`** (fast, polygonal) for interactive preview, **`HLRBRep_Algo`** (exact) for final output. Extract visible sharp edges, optional tangent edges, hidden edges, silhouettes. Run per view on worker threads; cache by model revision |
 | 2D↔3D link | Each projected 2D edge keeps the persistent name of its 3D source edge, so dimensions stay attached after model changes. **Phase 0 spike:** prove this mapping with HLR output |
-| Annotations | Smart Dimension (linear, aligned, angular, radius, diameter, ordinate), centre marks, centrelines, notes with property links, hole callouts (from Hole Builder data), cosmetic thread display, balloons |
+| Annotations | Dimension (linear, aligned, angular, radius, diameter, ordinate), centre marks, centrelines, notes with property links, hole callouts (from Hole Builder data), cosmetic thread display, balloons |
 | Tables | Bill of Materials (top-level, parts-only, indented), general tables |
 | Associativity | Model change → views re-project → annotations re-attach via persistent names → anything that cannot re-attach is shown as *dangling* (distinct colour) and listed |
 | Export | PDF (vector, via `QPdfWriter`), SVG (`QSvgGenerator`), DXF (own minimal R2000 ASCII writer; avoids GPL libraries), PNG; print via `QPrinter` |
 
 **Auto Drawing pipeline (one click: "Make Drawing")**
 
-1. **Pick settings:** template, standard (ISO/ANSI), sheet size — defaults from Options, dialog
-   optional.
+1. **Pick settings:** template, standard (ISO/ANSI), sheet size. Defaults come from Options and
+   the dialog is optional.
 2. **Choose the base view:** score each of the six principal orientations by projected area,
    number of visible circular edges and number of feature dimensions that are true-length in that
    view. The best score becomes the Front view (user can override).
@@ -546,12 +541,12 @@ quality is an R&D item; expect iteration.
 ### 6.10 Rendering and viewport
 
 - **Widget:** OCCT `V3d_View` in a `QOpenGLWidget`, MSAA anti-aliasing, gradient background.
-- **Display styles** (matching the SolidWorks set): Shaded with Edges, Shaded, Hidden Lines
+- **Display styles** (the usual set): Shaded with Edges, Shaded, Hidden Lines
   Removed, Hidden Lines Visible, Wireframe. Perspective toggle.
 - **Selection:** face/edge/vertex/body/component with pre-highlight on hover; selection filters;
   "Select Other" for hidden entities.
 - **Helpers:** reference triad (bottom-left), origin markers, `AIS_ViewCube` (optional, off by
-  default to keep the SolidWorks look), section clipping via `Graphic3d_ClipPlane`, temporary
+  default to keep the classic look), section clipping via `Graphic3d_ClipPlane`, temporary
   axes, dimension display in the model.
 - **Previews:** translucent yellow preview for features before OK.
 - **Performance:** tessellation quality tied to document "image quality" setting; instanced
@@ -613,25 +608,25 @@ dwg.export("plate.pdf")
 │  ◜ Fillet1     │                                                           │ ties    │
 │  ━━ rollback ━━│   ⟂ triad                                                 │         │
 ├────────────────┴───────────────────────────────────────────────────────────┴─────────┤
-│ [Model] [3D Views]   Extrude depth: 20 mm      Fully Defined   X 12.0  Y 4.5   MMGS ▾ │
+│ Ready                Extrude depth: 20 mm      Fully Defined   X 12.0  Y 4.5     mm ▾ │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Left panel tabs: **Feature Tree**, **Property Panel**, **Display/Properties**. When a command
 opens the Property Panel it replaces the tree, and the tree flies out over the graphics area.
-Panels can float and dock. Multiple documents open as tabs (or tiled windows, like SolidWorks).
+Panels can float and dock. Multiple documents open as tabs (or tiled windows).
 
 ### 7.2 Command Bar tabs per document type
 
 | Document | Tab | Commands |
 |---|---|---|
-| Part | **Features** | Extruded Boss · Revolved Boss · Swept Boss · Lofted Boss │ Extruded Cut · Revolved Cut · Swept Cut · Lofted Cut · Hole Builder │ Fillet▾ (Fillet, Chamfer) · Pattern▾ (Linear, Circular, Mirror) · Shell · Draft │ Reference Geometry▾ (Plane, Axis, Point, Coordinate System) · Combine · Move/Copy Body │ Equations |
-| Part | **Sketch** | Sketch (enter/exit) · Smart Dimension │ Line▾ · Rectangle▾ · Slot▾ · Circle▾ · Arc▾ · Polygon · Point │ Fillet▾ · Offset · Convert Entities · Trim▾ · Mirror · Transform▾ · Sketch Pattern▾ │ Add Relation · Show/Delete Relations · Construction · Sketch Doctor |
+| Part | **Features** | Extrude · Revolve · Sweep · Loft │ Extrude Cut · Revolve Cut · Sweep Cut · Loft Cut · Hole Builder │ Fillet▾ (Fillet, Chamfer) · Pattern▾ (Linear, Circular, Mirror) · Shell · Draft │ Reference Geometry▾ (Plane, Axis, Point, Coordinate System) · Combine · Move/Copy Body │ Equations |
+| Part | **Sketch** | Sketch (enter/exit) · Dimension │ Line▾ · Rectangle▾ · Slot▾ · Circle▾ · Arc▾ · Polygon · Point │ Fillet▾ · Offset · Project Edges · Trim▾ · Mirror · Transform▾ · Sketch Pattern▾ │ Add Relation · Show/Delete Relations · Construction · Sketch Doctor |
 | Part | **Evaluate** | Measure · Mass Properties · Section View · Check Geometry · Rebuild Issues |
 | Assembly | **Assembly** | Insert Components · Mate · Move Component · Rotate Component · Fix/Float · Hide/Show · Interference Detection · Make Drawing |
 | Assembly | **Sketch / Evaluate** | As for parts (layout sketches, measure, mass properties of the assembly) |
-| Drawing | **View Layout** | **Auto Drawing** ★ · Standard 3 View · Model View · Projected View · Section View · Detail View · Update Views |
-| Drawing | **Annotation** | Smart Dimension · Model Items · Auto Dimension · Note · Balloon · Auto Balloon · Centre Mark · Centreline · Hole Callout · BOM Table · Table |
+| Drawing | **View Layout** | **Auto Drawing** ★ · Three Views · Model View · Projected View · Section View · Detail View · Update Views |
+| Drawing | **Annotation** | Dimension · Model Dimensions · Auto Dimension · Note · Balloon · Auto Balloon · Centre Mark · Centreline · Hole Callout · BOM Table · Table |
 | Drawing | **Sketch** | 2D sketch tools for sheet geometry |
 | Drawing | **Sheet** | Sheet Properties · Edit Title Block · Add Sheet · Export PDF/DXF/SVG |
 
@@ -658,7 +653,7 @@ Panels can float and dock. Multiple documents open as tabs (or tiled windows, li
 - Node types: document, History folder, Material, planes, origin, sketches, features, bodies
   folder, mates folder, components, sheets, views.
 - Icons with state overlays: error (red ✕), warning (yellow !), suppressed (grey), under-defined
-  sketch prefix `(-)`, over-defined `(+)` — matching SolidWorks conventions.
+  sketch prefix `(-)`, over-defined `(+)`, as is common in CAD.
 - **Rollback bar:** drag up/down; right-click → Roll to End / Roll to Previous.
 - **Context menu:** Edit Feature · Edit Sketch · Suppress/Unsuppress · Hide/Show · Rename (F2) ·
   Delete (with dependency warning) · Parent/Child… · Rollback to here · Add to new folder.
@@ -669,7 +664,7 @@ Panels can float and dock. Multiple documents open as tabs (or tiled windows, li
 
 Shown after the splash unless a file was opened from Explorer.
 
-- **Home:** large buttons — New Part, New Assembly, New Drawing, Open; a grid of recent files with
+- **Home:** large buttons for New Part, New Assembly, New Drawing, Open; a grid of recent files with
   thumbnails (read from the file's embedded `thumb.png`).
 - **Recent:** recent files and folders, pin, remove from list, open containing folder.
 - **Learn:** built-in interactive tutorials (first part, first assembly, first drawing), keyboard
@@ -695,16 +690,16 @@ Shown after the splash unless a file was opened from Explorer.
 | Rename in tree | F2 |
 | New / Open / Save / Undo / Redo | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Z / Ctrl+Y |
 | Next document | Ctrl+Tab |
-| Sketch-mode single keys | L line, C circle, R rectangle, A arc, P point, D Smart Dimension, X construction; T trim and O offset when those tools land. Enter/Esc end the current chain or value box, never the sketch |
+| Sketch-mode single keys | L line, C circle, R rectangle, A arc, P point, D Dimension, X construction; T trim and O offset when those tools land. Enter/Esc end the current chain or value box, never the sketch |
 
 ### 7.7 Options
 
-Mirror SolidWorks' split, because users expect it:
+Options are split into application settings and document settings:
 
-- **System Options** (per user, `%APPDATA%\BrokenLiquid\settings.json`): general, colours
+- **Application settings** (per user, `%APPDATA%\BrokenLiquid\settings.json`): general, colours
   (incl. colour-blind palette), display, performance, file locations, autosave/backup, mouse and
   keyboard, theme, update check (off by default), "Reset to defaults" per page and for all.
-- **Document Properties** (stored inside each file): drafting standard, units and precision,
+- **Document settings** (stored inside each file): drafting standard, units and precision,
   dimension/annotation fonts and arrows, image quality (tessellation), material.
 
 ### 7.8 Visual identity and themes
@@ -713,11 +708,10 @@ Mirror SolidWorks' split, because users expect it:
   crack line, the two halves slightly offset (fluid → engineered).
 - **Palette (draft):** Ink Navy `#0E1A2B` · Liquid Cyan `#22C3E6` (accent) · Mercury
   `#C9D3DE` · Signal Orange `#FF7A3D` (warnings) · Steel `#5B6B7F` (secondary text).
-- **Themes:** *Light* (default; light-grey chrome, white-to-pale-blue viewport gradient — the
+- **Themes:** *Light* (default; light-grey chrome, white-to-pale-blue viewport gradient, the
   familiar CAD look) and *Dark* (charcoal chrome, graphite gradient). Implemented with QSS +
   icon tinting; all icons are SVG for crisp HiDPI.
-- **Icons:** original two-tone SVG set (outline + accent fill) at 16/24/32 px. No icons copied
-  from SolidWorks or FreeCAD.
+- **Icons:** original two-tone SVG set (outline + accent fill) at 16/24/32 px.
 - **Accessibility:** full keyboard reach, Qt accessibility names on all controls, UI scale
   setting, colour-blind palettes for sketch status and interference, respect Windows
   "reduce motion".
@@ -731,14 +725,14 @@ Mirror SolidWorks' split, because users expect it:
 - **Window:** 760 × 440 logical px (DPI-scaled), frameless, rounded 12 px corners, soft drop
   shadow, centred on the screen where the app was launched.
 - **Artwork:** full-bleed render of a chrome/liquid-metal droplet frozen mid-splash. The left half
-  is smooth fluid; the right half breaks into crisp faceted shards with thin cyan edge lines —
-  literally *broken liquid*, and a visual metaphor for fluid ideas becoming engineered solids.
+  is smooth fluid; the right half breaks into crisp faceted shards with thin cyan edge lines:
+  *broken liquid*, fluid ideas turning into engineered solids.
   Deep navy background with subtle vignette.
 - **Text:** bottom-left wordmark **BrokenLiquid** with tagline *Parametric CAD · Free · Local*.
   Bottom-right: `v1.0.0 · build 1234`. Small status line above a 2 px accent progress bar
   ("Loading geometry kernel…", "Loading plugins…", "Restoring workspace…").
-- **Community touch:** each release's splash can feature a model made in BrokenLiquid with a
-  "Model by …" credit, a nice nod to how SolidWorks splash screens credit community models.
+- **Community models:** each release's splash can show a model made in BrokenLiquid, with a
+  "Model by …" credit.
 - **Motion:** 250 ms fade-and-scale-in (0.98 → 1.0); a soft highlight sweeps across the droplet
   every ~2.5 s; progress bar eases between steps; 200 ms cross-fade into the main window. All
   motion disabled when Windows "reduce motion"/animations are off.
@@ -781,14 +775,14 @@ Mirror SolidWorks' split, because users expect it:
 | Drawing | `.bldraw` |
 | Templates | `.blpart-t`, `.blasm-t`, `.bldraw-t` (same container, flagged as template) |
 
-**Container:** a ZIP file (like `.docx`), human-inspectable and diff-friendly:
+**Container:** a ZIP file (like `.docx`) that anyone can unzip and inspect. The layout as built
+is in [ADR 0008](adr/0008-native-file-format.md):
 
 ```
-manifest.json        format id, document type, schema version, app version, units, UUID, timestamps
+manifest.json        format id, document type, schema version, app version, build, save time
 model.json           feature tree, sketches, parameters, equations, properties, appearances
-cache/shape.brep     OCCT binary B-rep of the final body (optional; regenerable; speeds opening)
-cache/naming.json    persistent-name map for the cached shape
-thumb.png            256 × 256 preview (Home screen, Explorer thumbnails)
+shapes/<id>.brep     OCCT binary B-rep of imported bodies (built geometry is rebuilt on open)
+thumb.png            256 × 256 preview (Home screen, Explorer thumbnails; planned)
 ```
 
 - **Schema versioning** from day one: each release has migration functions `vN → vN+1`. Old files
@@ -812,8 +806,8 @@ thumb.png            256 × 256 preview (Home screen, Explorer thumbnails)
 | PDF / SVG / PNG (drawings) | — | ✓ | Qt |
 | DXF (drawings) | — | ✓ | own R2000 writer |
 
-Native SolidWorks files are **not** supported: the formats are proprietary. Users exchange with
-SolidWorks through STEP (see FUTURE_FEATURES.md for options).
+Native files of commercial CAD tools are **not** supported: the formats are proprietary. Users
+exchange models with other tools through STEP (see FUTURE_FEATURES.md for options).
 
 ---
 
@@ -831,7 +825,7 @@ SolidWorks through STEP (see FUTURE_FEATURES.md for options).
 ### 10.2 Deployment layout
 
 ```
-%LOCALAPPDATA%\Programs\BrokenLiquid\     (per-user, no admin — default)
+%LOCALAPPDATA%\Programs\BrokenLiquid\     (per-user, no admin, the default)
   or C:\Program Files\BrokenLiquid\       (per-machine option)
 ├─ BrokenLiquid.exe · blcli.exe
 ├─ Qt6*.dll + platforms/, styles/, imageformats/   (via windeployqt)
@@ -864,8 +858,8 @@ Documents\BrokenLiquid\        default save location, user templates
 Unsigned installers trigger SmartScreen "Windows protected your PC" warnings. Options:
 
 - **Azure Artifact Signing** (formerly Trusted Signing): Basic and Premium tiers with a monthly
-  fee and a signature quota; billing starts when the account is created; eligibility rules apply —
-  check current pricing and eligibility before committing.
+  fee and a signature quota; billing starts when the account is created; eligibility rules apply.
+  Check current pricing and eligibility before committing.
 - **OV code-signing certificate** from a public CA (hardware token or cloud HSM).
 
 Sign `BrokenLiquid.exe`, `blcli.exe`, all BL DLLs and the installer with SignTool + RFC 3161
@@ -931,13 +925,13 @@ phases 2–5 partly in parallel once Phase 1 is done.
 
 | Phase | Version | Duration | Deliverables | Exit criteria |
 |---|---|---|---|---|
-| **0 — Foundations & spikes** | 0.0 | 3–5 wks | Repo, CMake/vcpkg, CI, logging, settings; OCCT viewer in a Qt window; splash + main-window skeleton. **Spikes:** PlaneGCS integration; persistent naming prototype vs OCAF; HLR projection of a box-with-holes to SVG with 2D↔3D edge mapping; two-part mate solver prototype | A STEP file opens, rotates, pans and zooms in a BL window. Four spike ADRs written |
-| **1 — App shell** | 0.1 "Viewer" | 4–6 wks | Command registry, Command Bar, Feature Tree pane, Property Panel framework, Resource Pane, View HUD, status bar, Home screen, themes, command search, undo/redo framework, Options dialogs, document tabs, STEP import as dumb solid, measure | A user can import, view, measure and section a STEP model with the full BL layout |
-| **2 — Sketcher** | 0.2 "Sketch" | 6–8 wks | Entities, inference/snaps, relations, Smart Dimension, solver + status colours, trim/extend/offset/mirror/convert, region finder, sketch on planes/faces, Sketch Doctor basics | A typical bracket profile can be drawn and fully defined quickly with keyboard + mouse |
-| **3 — Part modelling** | 0.3 "Part" | 8–12 wks | Part document, regeneration, all v1 features, reference geometry, persistent naming, rollback, edit/suppress/reorder, equations, materials, mass properties, appearances, native save/load with migrations, STEP/STL/OBJ/glTF export, autosave | All 10 benchmark parts modelled; upstream edits pass naming torture tests |
-| **4 — Assemblies** | 0.4 "Assembly" | 6–8 wks | Assembly document, components, instancing, mate solver, drag within DOF, mate errors, interference detection, BOM data, STEP assembly import/export | All 3 benchmark assemblies fully mated and moving correctly |
-| **5 — Drawings** | 0.5 "Drawing" | 8–12 wks | Sheets, templates, title blocks, all v1 views, HLR engine, annotations, Model Items, Auto Dimension, hole callouts, BOM + auto balloons, **Auto Drawing**, PDF/DXF/SVG export, associative updates | Auto Drawing meets the 80% target on benchmarks; exported PDFs print correctly at scale |
-| **6 — Polish & ship** | 1.0 | 4–6 wks | Final splash art and icon set, Python console + docs, Learn tutorials, installer, signing, file associations, (thumbnails), update check, crash dumps, performance pass, public beta, bug-fix | Performance budgets met; zero known data-loss bugs; signed installer passes a clean-machine install test |
+| **0. Foundations & spikes** | 0.0 | 3–5 wks | Repo, CMake/vcpkg, CI, logging, settings; OCCT viewer in a Qt window; splash + main-window skeleton. **Spikes:** persistent naming prototype vs OCAF; HLR projection of a box-with-holes to SVG with 2D↔3D edge mapping; two-part mate solver prototype (the sketch solver spike moved to Phase 2, ADR 0007) | A STEP file opens, rotates, pans and zooms in a BL window. Spike ADRs written |
+| **1. App shell** | 0.1 "Viewer" | 4–6 wks | Command registry, Command Bar, Feature Tree pane, Property Panel framework, Resource Pane, View HUD, status bar, Home screen, themes, command search, undo/redo framework, Options dialogs, document tabs, STEP import as dumb solid, measure | A user can import, view, measure and section a STEP model with the full BL layout |
+| **2. Sketcher** | 0.2 "Sketch" | 6–8 wks | Entities, inference/snaps, relations, dimensions, solver + status colours, trim/extend/offset/mirror/project edges, region finder, sketch on planes/faces, Sketch Doctor basics | A typical bracket profile can be drawn and fully defined quickly with keyboard + mouse |
+| **3. Part modelling** | 0.3 "Part" | 8–12 wks | Part document, regeneration, all v1 features, reference geometry, persistent naming, rollback, edit/suppress/reorder, equations, materials, mass properties, appearances, native save/load with migrations, STEP/STL/OBJ/glTF export, autosave | All 10 benchmark parts modelled; upstream edits pass naming torture tests |
+| **4. Assemblies** | 0.4 "Assembly" | 6–8 wks | Assembly document, components, instancing, mate solver, drag within DOF, mate errors, interference detection, BOM data, STEP assembly import/export | All 3 benchmark assemblies fully mated and moving correctly |
+| **5. Drawings** | 0.5 "Drawing" | 8–12 wks | Sheets, templates, title blocks, all v1 views, HLR engine, annotations, model dimensions, Auto Dimension, hole callouts, BOM + auto balloons, **Auto Drawing**, PDF/DXF/SVG export, associative updates | Auto Drawing meets the 80% target on benchmarks; exported PDFs print correctly at scale |
+| **6. Polish & ship** | 1.0 | 4–6 wks | Final splash art and icon set, Python console + docs, Learn tutorials, installer, signing, file associations, (thumbnails), update check, crash dumps, performance pass, public beta, bug-fix | Performance budgets met; zero known data-loss bugs; signed installer passes a clean-machine install test |
 
 **Total:** roughly **39–57 weeks** (9–13 months) for one developer.
 
@@ -956,14 +950,14 @@ phases 2–5 partly in parallel once Phase 1 is done.
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Topological naming breaks references | Models silently wrong — trust destroyed | Design in Phase 0 (§6.5); torture tests in CI; never silent repair; encourage plane-based sketches |
+| Topological naming breaks references | Models silently wrong, and nobody trusts the tool again | Design in Phase 0 (§6.5); torture tests in CI; never silent repair; encourage plane-based sketches |
 | OCCT boolean/fillet failures on edge cases | Features fail to build | Fuzzy booleans, healing, tolerance policy, clear errors, fall back to previous result; report minimal repro cases upstream |
 | Auto-dimension quality | Drawings need manual clean-up | Scope as "good first draft"; benchmark-driven heuristics; easy manual editing; iterate after v1 |
 | 2D↔3D edge mapping from HLR is harder than expected | Drawing dimensions not associative | Phase 0 spike; fallback: re-match projected edges to 3D edges geometrically |
-| Scope creep toward "full SolidWorks" | v1 never ships | FUTURE_FEATURES.md parking lot; feature freeze at Phase 6 start; ADR needed to add scope |
-| Large assembly performance | Slow, unusable at scale | Instancing, background loading, cached shapes; lightweight mode in FUTURE |
+| Scope creep toward a full commercial CAD suite | v1 never ships | FUTURE_FEATURES.md parking lot; feature freeze at Phase 6 start; ADR needed to add scope |
+| Large assembly performance | Slow, unusable at scale | Instancing, background loading, cached shapes; lightweight mode later (FUTURE_FEATURES.md) |
 | LGPL compliance mistakes | Legal exposure | Dynamic linking, licence texts shipped, third-party licence dialog, checklist in release process |
-| Trademark / trade dress confusion | Legal risk | Own names (§3.4), own icons and artwork; describe as "familiar workflow", never as SolidWorks-compatible or affiliated; get advice before public launch |
+| Brand and naming confusion | Legal risk | Distinct name, terminology (§3.4), icons and artwork; get advice before public launch |
 | GPU/OpenGL driver problems | Crashes or blank viewport | GL capability check at startup, software fallback, driver blacklist notes |
 | Single-developer bus factor | Stalls | ADRs, this plan, tests as documentation, clean module boundaries |
 
@@ -973,7 +967,7 @@ phases 2–5 partly in parallel once Phase 1 is done.
 
 | # | Decision | Recommendation |
 |---|---|---|
-| 1 | BrokenLiquid's own licence (open source? which licence?) | Decide before the first public build. LGPL-2.1+/MPL-2.0 keep it free with room for others to build on it; a closed free app is also allowed with dynamic linking |
+| 1 | BrokenLiquid's own licence (open source? which licence?) | **Decided 2026-11-26: MIT** (`LICENSE`). Compatible with dynamically linked LGPL Qt/OCCT |
 | 2 | Default drafting standard and units | ISO + millimetres, chosen again on first run |
 | 3 | File extensions | `.blpart` / `.blasm` / `.bldraw` (check for clashes with common apps) |
 | 4 | Assembly solver: own vs OndselSolver | Own (Eigen), confirmed by the Phase 0 spike |
@@ -985,39 +979,14 @@ phases 2–5 partly in parallel once Phase 1 is done.
 
 ## 15. Sources
 
-**SolidWorks 2023 help (official)**
-- [User Interface Overview (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/c_user_interface_overview.htm)
-- [User Interface topics (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/c_user_interface_top.htm)
-- [PropertyManager Overview (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/r_pm_overview.htm)
-- [Graphics Area (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/c_graphics_area_solidworks.htm)
-- [Accepting Features / Confirmation Corner (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/c_accepting_features.htm)
-- [FeatureManager Design Tree (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/c_featuremanager_design_tree.htm)
-- [Heads-up View Toolbar (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/c_heads_up_view_toolbar.htm)
-- [Task Pane (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/r_task_pane.htm)
-- [Status Bar (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/r_status_bar.htm)
-- [Welcome Dialog Box (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/c_welcome_dialog_box.htm)
-- [Commands, Menus, and Toolbars (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/c_commands_menus_toolbars.htm)
-- [View Palette (2023)](https://help.solidworks.com/2023/english/SolidWorks/sldworks/c_view_palette.htm)
-- [What's New 2023 — User Interface](https://help.solidworks.com/2023/english/WhatsNew/c_wn_ui.htm)
-- [What's New 2023 — Top Enhancements](https://help.solidworks.com/2023/English/WhatsNew/c_wn2023_top_enhancements.htm)
-- [Standard Mates (2021)](https://help.solidworks.com/2021/english/SolidWorks/sldworks/r_Types_of_Mates_SWassy.htm)
-- [Sketch States (2019)](https://help.solidworks.com/2019/english/SolidWorks/acadhelp/c_sketch_states_acadhelp.htm)
-- [Standard 3 View (2017)](https://help.solidworks.com/2017/english/solidworks/sldworks/c_standard_3_view.htm)
-- [Inserting Auto Balloons (2016)](https://help.solidworks.com/2016/English/SolidWorks/sldworks/t_Inserting_Auto_Balloons.htm)
-- [Automatic Drawing Operations (2012)](https://help.solidworks.com/2012/English/SolidWorks/acadhelp/Automatic_Drawing_Operations.htm)
-
 **Technology**
 - [OCCT 8.0.0 release announcement](https://dev.opencascade.org/content/open-cascade-technology-800-release)
 - [OCCT 8.0.1 release discussion](https://github.com/Open-Cascade-SAS/OCCT/discussions/1415)
-- [Open Cascade Technology — Wikipedia](https://en.wikipedia.org/wiki/Open_Cascade_Technology)
+- [Open Cascade Technology (Wikipedia)](https://en.wikipedia.org/wiki/Open_Cascade_Technology)
 - [OCCT HLRBRep_PolyAlgo reference](https://dev.opencascade.org/doc/refman/html/class_h_l_r_b_rep___poly_algo.html)
 - [OCCT HLRBRep reference (7.9)](https://dev.opencascade.org/doc/occt-7.9.0/refman/html/class_h_l_r_b_rep.html)
-- [FreeCAD — Topological naming problem](https://wiki.freecad.org/Topological_naming_problem)
-- [realthunder — Topological Naming wiki](https://github.com/realthunder/FreeCAD_assembly3/wiki/Topological-Naming)
-- [FreeCAD licence](https://wiki.freecad.org/License)
 - [planegcs (PlaneGCS WebAssembly port, LGPL)](https://github.com/Salusoft89/planegcs)
-- [Ondsel overview (solver/licensing context)](https://all3dp.com/2/ondsel-all-you-need-to-know/)
-- [Qt — Obligations of the GPL and LGPL](https://www.qt.io/licensing/open-source-lgpl-obligations)
+- [Qt: obligations of the GPL and LGPL](https://www.qt.io/licensing/open-source-lgpl-obligations)
 - [Qt 6.10 released](https://www.qt.io/blog/qt-6.10-released)
 - [SARibbon (MIT)](https://github.com/czyt1988/SARibbon)
 - [Azure Artifact Signing pricing](https://azure.microsoft.com/pricing/details/artifact-signing/)

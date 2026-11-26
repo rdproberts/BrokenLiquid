@@ -9,46 +9,38 @@ namespace bl::units {
 
 double lengthFactor(UnitSystem system) {
     switch (system) {
-    case UnitSystem::MMGS: return 1.0;
-    case UnitSystem::CGS: return 10.0;
-    case UnitSystem::MKS: return 1000.0;
-    case UnitSystem::IPS: return 25.4;
+    case UnitSystem::Millimetre: return 1.0;
+    case UnitSystem::Centimetre: return 10.0;
+    case UnitSystem::Metre: return 1000.0;
+    case UnitSystem::Inch: return 25.4;
     }
     return 1.0;
 }
 
 const char* lengthSymbol(UnitSystem system) {
     switch (system) {
-    case UnitSystem::MMGS: return "mm";
-    case UnitSystem::CGS: return "cm";
-    case UnitSystem::MKS: return "m";
-    case UnitSystem::IPS: return "in";
+    case UnitSystem::Millimetre: return "mm";
+    case UnitSystem::Centimetre: return "cm";
+    case UnitSystem::Metre: return "m";
+    case UnitSystem::Inch: return "in";
     }
     return "mm";
 }
 
-const char* systemName(UnitSystem system) {
-    switch (system) {
-    case UnitSystem::MMGS: return "MMGS";
-    case UnitSystem::CGS: return "CGS";
-    case UnitSystem::MKS: return "MKS";
-    case UnitSystem::IPS: return "IPS";
-    }
-    return "MMGS";
-}
+const char* systemName(UnitSystem system) { return lengthSymbol(system); }
 
 const char* systemDescription(UnitSystem system) {
     switch (system) {
-    case UnitSystem::MMGS: return "millimetre, gram, second";
-    case UnitSystem::CGS: return "centimetre, gram, second";
-    case UnitSystem::MKS: return "metre, kilogram, second";
-    case UnitSystem::IPS: return "inch, pound, second";
+    case UnitSystem::Millimetre: return "millimetre, gram, second";
+    case UnitSystem::Centimetre: return "centimetre, gram, second";
+    case UnitSystem::Metre: return "metre, kilogram, second";
+    case UnitSystem::Inch: return "inch, pound, second";
     }
     return "";
 }
 
 std::optional<UnitSystem> systemFromName(std::string_view name) {
-    for (UnitSystem s : {UnitSystem::MMGS, UnitSystem::CGS, UnitSystem::MKS, UnitSystem::IPS}) {
+    for (UnitSystem s : {UnitSystem::Millimetre, UnitSystem::Centimetre, UnitSystem::Metre, UnitSystem::Inch}) {
         if (name == systemName(s)) {
             return s;
         }

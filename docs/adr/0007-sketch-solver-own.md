@@ -11,7 +11,7 @@
 
 The sketcher needs a 2D constraint solver with fast interactive dragging, DOF counting for the
 under/fully/over-defined colours, and names for redundant and conflicting constraints.
-[ADR 0006](0006-sketch-solver-planegcs.md) proposed vendoring FreeCAD's PlaneGCS (LGPL). At the
+[ADR 0006](0006-sketch-solver-planegcs.md) proposed vendoring PlaneGCS (LGPL). At the
 start of Phase 2 we chose its documented fallback instead: a small solver of our own on Eigen,
 like the mate solver of [ADR 0005](0005-assembly-solver.md). Reasons: no vendored third-party
 code to patch, shim and track; no extra DLL or licence boundary; error messages and behaviour

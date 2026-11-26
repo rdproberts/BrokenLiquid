@@ -22,7 +22,7 @@
 namespace bl::ui {
 namespace {
 
-constexpr UnitSystem kSystems[] = {UnitSystem::MMGS, UnitSystem::CGS, UnitSystem::MKS, UnitSystem::IPS};
+constexpr UnitSystem kSystems[] = {UnitSystem::Millimetre, UnitSystem::Centimetre, UnitSystem::Metre, UnitSystem::Inch};
 
 QComboBox* unitCombo(QWidget* parent) {
     auto* combo = new QComboBox(parent);
@@ -80,15 +80,15 @@ OptionsDialog::OptionsDialog(const Units* document, const QString& documentTitle
     setObjectName(QStringLiteral("OptionsDialog"));
     resize(720, 460);
 
-    m_tabs->addTab(makeSystemOptions(), tr("System Options"));
+    m_tabs->addTab(makeAppSettings(), tr("Application"));
     if (document) {
         m_initialUnits = *document;
-        m_tabs->addTab(makeDocumentProperties(*document), tr("Document Properties — %1").arg(documentTitle));
+        m_tabs->addTab(makeDocumentSettings(*document), tr("Document: %1").arg(documentTitle));
     }
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     QPushButton* reset = buttons->addButton(tr("Reset…"), QDialogButtonBox::ResetRole);
-    reset->setToolTip(tr("Put every system option back to its default"));
+    reset->setToolTip(tr("Put every application setting back to its default"));
     connect(buttons, &QDialogButtonBox::accepted, this, &OptionsDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &OptionsDialog::reject);
     connect(reset, &QPushButton::clicked, this, &OptionsDialog::resetAll);
@@ -99,7 +99,7 @@ OptionsDialog::OptionsDialog(const Units* document, const QString& documentTitle
     load();
 }
 
-QWidget* OptionsDialog::makeSystemOptions() {
+QWidget* OptionsDialog::makeAppSettings() {
     PagedWidget paged(m_tabs);
 
     QFormLayout* general = paged.addPage(tr("General"));
@@ -115,7 +115,7 @@ QWidget* OptionsDialog::makeSystemOptions() {
     view->addRow(QString(), m_reverseZoom);
 
     QFormLayout* units = paged.addPage(tr("Default Units"), tr("Used for new documents. Each document keeps its own "
-                                                                "units in Document Properties."));
+                                                                "units on the Document tab."));
     m_defaultUnits = unitCombo(paged.widget);
     m_defaultDecimals = new QSpinBox(paged.widget);
     m_defaultDecimals->setRange(0, 8);
@@ -137,7 +137,7 @@ QWidget* OptionsDialog::makeSystemOptions() {
     return paged.widget;
 }
 
-QWidget* OptionsDialog::makeDocumentProperties(const Units& u) {
+QWidget* OptionsDialog::makeDocumentSettings(const Units& u) {
     PagedWidget paged(m_tabs);
     QFormLayout* page = paged.addPage(tr("Units"), tr("Changing units only changes how values are shown and "
                                                       "typed; the model keeps its size. Undo with Ctrl+Z."));
@@ -156,7 +156,7 @@ QWidget* OptionsDialog::makeDocumentProperties(const Units& u) {
     return paged.widget;
 }
 
-void OptionsDialog::showDocumentProperties() {
+void OptionsDialog::showDocumentSettings() {
     if (m_tabs->count() > 1) {
         m_tabs->setCurrentIndex(1);
     }
@@ -167,15 +167,15 @@ void OptionsDialog::load() {
     m_theme->setCurrentIndex(m_theme->findData(QString::fromStdString(s.get<std::string>("ui.theme", "light"))));
     m_splash->setChecked(s.get<bool>("app.showSplash", true));
     m_reverseZoom->setChecked(s.get<bool>("view.mouse.reverseZoom", false));
-    const auto system = units::systemFromName(s.get<std::string>("units.default", "MMGS"));
-    selectUnit(m_defaultUnits, system.value_or(UnitSystem::MMGS));
+    const auto system = units::systemFromName(s.get<std::string>("units.default", "mm"));
+    selectUnit(m_defaultUnits, system.value_or(UnitSystem::Millimetre));
     m_defaultDecimals->setValue(s.get<int>("units.decimals", 2));
     m_recentMax->setValue(s.get<int>("files.recentMax", 10));
 }
 
 void OptionsDialog::resetAll() {
     if (QMessageBox::question(this, tr("Reset options"),
-                              tr("Put all system options back to their defaults? Recent files and window "
+                              tr("Put all application settings back to their defaults? Recent files and window "
                                  "layout are cleared too.")) != QMessageBox::Yes) {
         return;
     }

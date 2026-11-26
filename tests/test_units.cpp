@@ -10,13 +10,13 @@ namespace {
 Units mm() { return Units{}; }
 Units inch() {
     Units u;
-    u.system = UnitSystem::IPS;
+    u.system = UnitSystem::Inch;
     u.decimals = 3;
     return u;
 }
 Units cgs() {
     Units u;
-    u.system = UnitSystem::CGS;
+    u.system = UnitSystem::Centimetre;
     return u;
 }
 } // namespace
@@ -71,7 +71,7 @@ TEST(Units, ParsesAngles) {
 }
 
 TEST(Units, SystemNamesRoundTrip) {
-    for (UnitSystem s : {UnitSystem::MMGS, UnitSystem::CGS, UnitSystem::MKS, UnitSystem::IPS}) {
+    for (UnitSystem s : {UnitSystem::Millimetre, UnitSystem::Centimetre, UnitSystem::Metre, UnitSystem::Inch}) {
         EXPECT_EQ(units::systemFromName(units::systemName(s)), s);
     }
     EXPECT_FALSE(units::systemFromName("furlongs"));

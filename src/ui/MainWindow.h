@@ -93,7 +93,7 @@ private:
     void addRecentFile(const QString& path);
     std::vector<DocumentView*> views() const;
 
-    // Interactive commands (Property Panel + Confirmation Corner)
+    // Interactive commands (Property Panel + Confirm Corner)
     void startCommand(std::unique_ptr<InteractiveCommand> command);
     // `force`: no "discard changes?" question (the document is closing anyway).
     void finishCommand(bool accept, bool force = false);
@@ -124,7 +124,7 @@ private:
     bool saveDocument(DocumentView* view, bool saveAs);
     bool confirmClose(DocumentView* view); // asks to save changes; false: cancelled
     void openPart(const QString& path);
-    void runPartDemo(bool stopAtCut = false); // stopAtCut: leave the Cut-Extrude panel and preview open
+    void runPartDemo(bool stopAtCut = false); // stopAtCut: leave the Extrude Cut panel and preview open
     void runFilletDemo(bool stopInPanel);     // after the part demo: fillet and chamfer edges
     void runRevolveDemo(bool stopInPanel);    // a stepped shaft revolved from a half profile
     void updateSketchActions();

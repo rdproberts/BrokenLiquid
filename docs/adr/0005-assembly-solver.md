@@ -2,14 +2,14 @@
 
 - **Status:** Accepted (Phase 0 spike passed; full solver in Phase 4)
 - **Date:** 2026-11-25
-- **Spike:** [`spikes/mate_solver`](../../spikes/mate_solver/main.cpp) — run as CTest `spike_mate_solver`
+- **Spike:** [`spikes/mate_solver`](../../spikes/mate_solver/main.cpp), run as CTest `spike_mate_solver`
 
 ## Context
 
 Assemblies need a solver that places components from mates (coincident, concentric, distance,
 angle, …), moves parts as little as possible, reports each component's remaining degrees of
 freedom (under / fully / over-defined) and names conflicting mates (PLAN.md §6.8). Options: our
-own solver on Eigen, or OndselSolver (FreeCAD 1.0's assembly solver, LGPL).
+own solver on Eigen, or OndselSolver (an existing open-source assembly solver, LGPL).
 
 ## Spike
 

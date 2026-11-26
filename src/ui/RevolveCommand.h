@@ -15,7 +15,7 @@ class QDoubleSpinBox;
 
 namespace bl::ui {
 
-// Revolved Boss/Base and Revolved Cut (PLAN.md 6.7): turns the closed regions of a sketch about a
+// Revolve and Revolve Cut (PLAN.md 6.7): turns the closed regions of a sketch about a
 // line of that sketch (its centerline by default). One direction or mid plane, angle up to 360
 // degrees, reverse, and for bosses Merge result. Previewed like the extrude; OK refuses while the
 // feature would fail.
@@ -25,7 +25,7 @@ public:
     RevolveCommand(CommandHost& host, const QUuid& sketch, bool cut, const QUuid& editing = {});
 
     QString id() const override { return m_params.cut ? QStringLiteral("features.revolveCut") : QStringLiteral("features.revolve"); }
-    QString title() const override { return m_params.cut ? tr("Cut-Revolve") : tr("Revolve"); }
+    QString title() const override { return m_params.cut ? tr("Revolve Cut") : tr("Revolve"); }
     QString iconName() const override { return m_params.cut ? QStringLiteral("revolve-cut") : QStringLiteral("revolve"); }
 
     void start() override;

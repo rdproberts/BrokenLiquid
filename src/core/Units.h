@@ -6,12 +6,13 @@
 
 namespace bl {
 
-// Document unit systems, named like the familiar CAD set (PLAN.md 7.7).
+// Document unit systems, named after their length unit (PLAN.md 7.7). Mass and time follow:
+// grams and seconds for mm and cm, kilograms for m, pounds for inches.
 // Geometry is always stored in millimetres; units only affect display and input.
-enum class UnitSystem { MMGS, CGS, MKS, IPS };
+enum class UnitSystem { Millimetre, Centimetre, Metre, Inch };
 
 struct Units {
-    UnitSystem system = UnitSystem::MMGS;
+    UnitSystem system = UnitSystem::Millimetre;
     int decimals = 2; // length decimals shown in the UI
     int angleDecimals = 2;
 
@@ -24,7 +25,7 @@ namespace units {
 double lengthFactor(UnitSystem system);
 // "mm", "cm", "m", "in"
 const char* lengthSymbol(UnitSystem system);
-// "MMGS", "CGS", "MKS", "IPS"
+// Name used in files, settings and the status bar: the length symbol ("mm", "cm", "m", "in").
 const char* systemName(UnitSystem system);
 // "millimetre, gram, second" etc.
 const char* systemDescription(UnitSystem system);

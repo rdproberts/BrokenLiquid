@@ -15,7 +15,7 @@ namespace bl::ui {
 class LengthField;
 class PanelGroup;
 
-// Extruded Boss/Base and Extruded Cut (PLAN.md 6.7): sweeps the closed regions of a sketch along
+// Extrude and Extrude Cut (PLAN.md 6.7): sweeps the closed regions of a sketch along
 // its normal. Direction 1 (Blind, Through All, Mid Plane, reverse), an optional blind Direction 2
 // and, for bosses, Merge result. The swept solid is previewed while the values change; OK adds the
 // feature (or changes the edited one) as one undo step, and refuses while the feature would fail.
@@ -27,7 +27,7 @@ public:
     ExtrudeCommand(CommandHost& host, const QUuid& sketch, bool cut, const QUuid& editing = {});
 
     QString id() const override { return m_params.cut ? QStringLiteral("features.extrudeCut") : QStringLiteral("features.extrude"); }
-    QString title() const override { return m_params.cut ? tr("Cut-Extrude") : tr("Boss-Extrude"); }
+    QString title() const override { return m_params.cut ? tr("Extrude Cut") : tr("Extrude"); }
     QString iconName() const override { return m_params.cut ? QStringLiteral("extrude-cut") : QStringLiteral("extrude"); }
 
     void start() override;

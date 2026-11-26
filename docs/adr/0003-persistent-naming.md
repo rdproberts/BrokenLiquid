@@ -4,7 +4,7 @@
   torture suite implemented in Phase 3: `src/kernel/Naming.*`, `tests/test_naming.cpp`; vertices
   follow when a feature needs them)
 - **Date:** 2026-11-25
-- **Spike:** [`spikes/naming`](../../spikes/naming/main.cpp) — run as CTest `spike_naming`
+- **Spike:** [`spikes/naming`](../../spikes/naming/main.cpp), run as CTest `spike_naming`
 
 ## Context
 
@@ -47,8 +47,9 @@ instead of guessing. Resolution cost is negligible (whole spike < 0.1 s).
 4. Sketch entities get stable ids (UUIDs) at creation; ids never get reused or renumbered.
 5. Our own map, not OCAF `TNaming`. `TNaming` was reviewed but not prototyped: it binds naming
    to the OCAF label tree and its selector logic is hard to debug or extend, while the history
-   API we need (`BRepBuilderAPI_MakeShape`) is the same one it uses internally. FreeCAD 1.0's
-   element map follows the same "name by origin" idea and is our reference for edge cases.
+   API we need (`BRepBuilderAPI_MakeShape`) is the same one it uses internally. Published
+   element-map approaches follow the same "name by origin" idea and are our reference for edge
+   cases.
 
 ## Consequences
 

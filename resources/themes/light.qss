@@ -68,7 +68,7 @@ QMenu::item:disabled { color: #9AA7B6; }
 QMenu::separator { height: 1px; background: #E1E7ED; margin: 4px 8px; }
 QToolTip { background: #FFFFFF; color: #1B2633; border: 1px solid #C9D3DE; padding: 4px 6px; }
 
-/* --- Phase 1: Property Panel, Confirmation Corner, document tabs, Home ----------------------------- */
+/* --- Phase 1: Property Panel, Confirm Corner, document tabs, Home ----------------------------- */
 QWidget#PropertyPanel, QScrollArea#PanelScroll, QScrollArea#PanelScroll > QWidget > QWidget { background: #FBFCFD; }
 QLabel#PanelTitle { color: #0E1A2B; font-size: 14px; font-weight: 600; }
 QToolButton#PanelOk, QToolButton#PanelCancel {

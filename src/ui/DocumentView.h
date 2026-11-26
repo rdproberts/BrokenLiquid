@@ -24,7 +24,7 @@ struct Body;
 namespace bl::ui {
 
 class CommandRegistry;
-class ConfirmationCorner;
+class ConfirmCorner;
 class ViewHud;
 
 // A section view as the user set it up (PLAN.md 6.10). The cut plane is a reference plane or a
@@ -41,7 +41,7 @@ struct SectionSpec {
     gp_Pln plane() const; // the actual cut plane
 };
 
-// One document's graphics area: the 3D viewer, its View HUD and the Confirmation Corner.
+// One document's graphics area: the 3D viewer, its View HUD and the Confirm Corner.
 // Keeps the displayed objects in step with the document model (one object per body).
 class DocumentView : public QWidget {
     Q_OBJECT
@@ -50,7 +50,7 @@ public:
 
     doc::Document* document() const { return m_document; }
     render::OcctViewer* viewer() const { return m_viewer; }
-    ConfirmationCorner* corner() const { return m_corner; }
+    ConfirmCorner* corner() const { return m_corner; }
     ViewHud* hud() const { return m_hud; }
 
     // Body that owns a displayed object (null if it is not a body, e.g. a measure line).
@@ -91,7 +91,7 @@ private:
     doc::Document* m_document;
     render::OcctViewer* m_viewer;
     ViewHud* m_hud;
-    ConfirmationCorner* m_corner;
+    ConfirmCorner* m_corner;
     std::map<QUuid, Entry> m_objects;
     std::map<QUuid, Handle(render::SketchPresentation)> m_sketches;
     QUuid m_editingSketch;

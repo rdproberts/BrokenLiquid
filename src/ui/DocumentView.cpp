@@ -1,7 +1,7 @@
 #include "ui/DocumentView.h"
 
 #include "doc/Document.h"
-#include "ui/ConfirmationCorner.h"
+#include "ui/ConfirmCorner.h"
 #include "ui/SketchEditor.h"
 #include "ui/Theme.h"
 #include "ui/ViewHud.h"
@@ -61,7 +61,7 @@ DocumentView::DocumentView(doc::Document* document, CommandRegistry& registry, Q
                       QStringLiteral("view.style.hlr"), QStringLiteral("view.style.hlv"),
                       QStringLiteral("view.style.wireframe")});
 
-    m_corner = new ConfirmationCorner(this);
+    m_corner = new ConfirmCorner(this);
 
     connect(m_viewer, &render::OcctViewer::glReady, this, [this] {
         m_viewer->setStandardView(render::StandardView::Isometric);

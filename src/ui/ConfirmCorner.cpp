@@ -1,4 +1,4 @@
-#include "ui/ConfirmationCorner.h"
+#include "ui/ConfirmCorner.h"
 
 #include <QCursor>
 #include <QEvent>
@@ -9,9 +9,9 @@
 
 namespace bl::ui {
 
-ConfirmationCorner::ConfirmationCorner(QWidget* viewport)
+ConfirmCorner::ConfirmCorner(QWidget* viewport)
     : QWidget(viewport), m_viewport(viewport), m_ok(new QToolButton(this)), m_cancel(new QToolButton(this)) {
-    setObjectName(QStringLiteral("ConfirmationCorner"));
+    setObjectName(QStringLiteral("ConfirmCorner"));
     setAttribute(Qt::WA_TranslucentBackground);
     auto* layout = new QHBoxLayout(this);
     layout->setContentsMargins(6, 6, 6, 6);
@@ -27,13 +27,13 @@ ConfirmationCorner::ConfirmationCorner(QWidget* viewport)
         b->setAutoRaise(true);
         layout->addWidget(b);
     }
-    connect(m_ok, &QToolButton::clicked, this, &ConfirmationCorner::accepted);
-    connect(m_cancel, &QToolButton::clicked, this, &ConfirmationCorner::cancelled);
+    connect(m_ok, &QToolButton::clicked, this, &ConfirmCorner::accepted);
+    connect(m_cancel, &QToolButton::clicked, this, &ConfirmCorner::cancelled);
     viewport->installEventFilter(this);
     hide();
 }
 
-void ConfirmationCorner::showFor(bool confirm) {
+void ConfirmCorner::showFor(bool confirm) {
     m_ok->setVisible(confirm);
     m_cancel->setToolTip(confirm ? tr("Cancel (Esc)") : tr("Close (Esc)"));
     m_pinnedToCursor = false;
@@ -43,7 +43,7 @@ void ConfirmationCorner::showFor(bool confirm) {
     raise();
 }
 
-void ConfirmationCorner::moveToCursor() {
+void ConfirmCorner::moveToCursor() {
     if (!isVisible()) {
         return;
     }
@@ -52,18 +52,18 @@ void ConfirmationCorner::moveToCursor() {
     m_pinnedToCursor = true;
 }
 
-void ConfirmationCorner::placeInCorner() {
+void ConfirmCorner::placeInCorner() {
     move(m_viewport->width() - width() - 10, 10);
 }
 
-bool ConfirmationCorner::eventFilter(QObject* watched, QEvent* event) {
+bool ConfirmCorner::eventFilter(QObject* watched, QEvent* event) {
     if (watched == m_viewport && event->type() == QEvent::Resize && !m_pinnedToCursor) {
         placeInCorner();
     }
     return QWidget::eventFilter(watched, event);
 }
 
-void ConfirmationCorner::paintEvent(QPaintEvent*) {
+void ConfirmCorner::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     QPainterPath path;

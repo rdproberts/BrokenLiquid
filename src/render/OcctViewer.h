@@ -36,13 +36,13 @@ public:
 // Display styles matching the familiar CAD set (see PLAN.md 6.10).
 enum class DisplayStyle { ShadedWithEdges, Shaded, HiddenLinesRemoved, HiddenLinesVisible, Wireframe };
 
-// Y-up standard orientations (Front = looking along -Z at the XY plane, like SolidWorks).
+// Y-up standard orientations (Front = looking along -Z at the XY plane, the usual CAD convention).
 enum class StandardView { Front, Back, Left, Right, Top, Bottom, Isometric, Dimetric, Trimetric };
 
 // OCCT V3d viewer hosted in a QOpenGLWidget. Based on the approach of OCCT's own Qt sample
 // (Qt owns the GL context and FBO; OCCT renders into it).
 //
-// Mouse (SolidWorks-style, see PLAN.md 7.6):
+// Mouse (classic CAD conventions, see PLAN.md 7.6):
 //   middle drag            rotate          ctrl + middle drag   pan
 //   shift + middle drag    zoom            wheel                zoom at cursor
 //   left click / drag      select / box select (ctrl toggles)

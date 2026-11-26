@@ -194,7 +194,7 @@ doc::PartModel ExtrudeCommand::applied(QUuid* featureId) const {
     } else {
         doc::Feature f;
         f.type = doc::FeatureType::Extrude;
-        f.name = m_params.cut ? tr("Cut-Extrude%1").arg(++next.cutCount) : tr("Boss-Extrude%1").arg(++next.extrudeCount);
+        f.name = m_params.cut ? tr("ExtrudeCut%1").arg(++next.cutCount) : tr("Extrude%1").arg(++next.extrudeCount);
         f.body = QUuid::createUuid();
         f.extrude = m_params;
         *featureId = f.id;

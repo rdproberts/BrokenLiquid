@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (Phase 0 spike passed; scale testing in Phase 5)
 - **Date:** 2026-11-25
-- **Spike:** [`spikes/hlr_svg`](../../spikes/hlr_svg/main.cpp) — run as CTest `spike_hlr_svg`
+- **Spike:** [`spikes/hlr_svg`](../../spikes/hlr_svg/main.cpp), run as CTest `spike_hlr_svg`
 
 ## Context
 

@@ -9,7 +9,7 @@
 
 namespace bl {
 
-// User-level ("System Options") settings stored as JSON.
+// Per-user application settings stored as JSON.
 // Keys are dotted paths, e.g. "ui.theme" or "view.mouse.reverseZoom".
 // Thread-safe. Values that fail to convert fall back to the supplied default.
 class Settings {

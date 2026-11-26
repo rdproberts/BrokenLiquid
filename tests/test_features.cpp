@@ -45,7 +45,7 @@ QUuid addExtrude(doc::PartModel& m, const QUuid& sketch, double depth, bool cut 
                  doc::EndCondition end = doc::EndCondition::Blind, bool reverse = false) {
     doc::Feature f;
     f.type = doc::FeatureType::Extrude;
-    f.name = cut ? QStringLiteral("Cut-Extrude%1").arg(++m.cutCount) : QStringLiteral("Boss-Extrude%1").arg(++m.extrudeCount);
+    f.name = cut ? QStringLiteral("ExtrudeCut%1").arg(++m.cutCount) : QStringLiteral("Extrude%1").arg(++m.extrudeCount);
     f.body = QUuid::createUuid();
     f.extrude.sketch = sketch;
     f.extrude.depth = depth;
@@ -256,7 +256,7 @@ TEST(PartFile, SaveAndOpenRoundTrip) {
     s.sketch.addDimension(sketch::ConstraintType::Distance, {s.sketch.curves().front().id}, 10.0);
     const QUuid sketchId = s.id;
     addExtrude(m, sketchId, 5.0);
-    m.units.system = UnitSystem::IPS;
+    m.units.system = UnitSystem::Inch;
     doc::rebuild(m);
     ASSERT_EQ(m.bodies.size(), 1u); // the boss merged into the imported block
     m.bodies.front().name = QStringLiteral("Bracket");
@@ -273,7 +273,7 @@ TEST(PartFile, SaveAndOpenRoundTrip) {
     doc::rebuild(loaded.model);
     const doc::PartModel& r = loaded.model;
     EXPECT_EQ(r.features.size(), m.features.size());
-    EXPECT_EQ(r.units.system, UnitSystem::IPS);
+    EXPECT_EQ(r.units.system, UnitSystem::Inch);
     EXPECT_EQ(r.extrudeCount, m.extrudeCount);
     ASSERT_NE(r.sketch(sketchId), nullptr);
     EXPECT_TRUE(r.sketch(sketchId)->sketch == m.sketch(sketchId)->sketch);

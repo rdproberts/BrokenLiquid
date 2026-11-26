@@ -214,7 +214,7 @@ kernel::NamedShape revolveTool(const SketchFeature& sk, const RevolveParams& p, 
     const sketch::Id axisId = revolveAxis(sk.sketch, p.axis);
     if (axisId == 0) {
         return fail(p.axis != 0 ? tr("The axis line is gone from the sketch. Pick another axis.")
-                                : tr("Draw a centerline in the sketch to revolve about."));
+                                : tr("Draw a centreline in the sketch to revolve about."));
     }
     const sketch::Curve* axisCurve = sk.sketch.curve(axisId);
     const sketch::Point* a = sk.sketch.point(axisCurve->p1);
@@ -235,7 +235,7 @@ kernel::NamedShape revolveTool(const SketchFeature& sk, const RevolveParams& p, 
         }
     }
     if (lo < -1e-6 * extent && hi > 1e-6 * extent) {
-        return fail(tr("The profile crosses the axis. Keep it on one side of the centerline."));
+        return fail(tr("The profile crosses the axis. Keep it on one side of the centreline."));
     }
     if (!(p.angle > 1e-6) || p.angle > 360.0 + 1e-9) {
         return fail(tr("The angle must be more than 0 and at most 360 degrees."));
@@ -316,7 +316,7 @@ void applyTool(Feature& f, const kernel::NamedShape& tool, bool cut, bool merge,
         for (size_t i : touching) {
             merged = kernel::fuse(state.bodies[i].shape, merged, &error);
             if (merged.isNull()) {
-                setError(f, tr("The boss could not be merged: %1.").arg(QString::fromStdString(error)));
+                setError(f, tr("The new solid could not be merged: %1.").arg(QString::fromStdString(error)));
                 return;
             }
         }

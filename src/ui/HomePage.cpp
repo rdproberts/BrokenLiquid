@@ -131,7 +131,7 @@ QWidget* HomePage::makeFirstRun() {
     frame->setObjectName(QStringLiteral("HomeCardAccent"));
     auto* form = new QFormLayout();
     auto* units = new QComboBox(frame);
-    for (UnitSystem s : {UnitSystem::MMGS, UnitSystem::CGS, UnitSystem::MKS, UnitSystem::IPS}) {
+    for (UnitSystem s : {UnitSystem::Millimetre, UnitSystem::Centimetre, UnitSystem::Metre, UnitSystem::Inch}) {
         units->addItem(QStringLiteral("%1 (%2)").arg(QString::fromLatin1(units::systemName(s)),
                                                      QString::fromLatin1(units::systemDescription(s))),
                        QString::fromLatin1(units::systemName(s)));

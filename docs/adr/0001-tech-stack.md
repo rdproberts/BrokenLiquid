@@ -10,7 +10,7 @@ native speed for regeneration and drawing projection, a desktop UI toolkit that 
 dockable panels, and a long-term path to scripting, plugins, AI features and other operating
 systems. Everything must be free to ship. Options compared in [PLAN.md §5.2](../PLAN.md#52-options-considered):
 C#/.NET + OCCT interop, Rust + young kernels, Electron + opencascade.js, Python + pythonOCC, and
-forking FreeCAD.
+forking an existing open-source CAD application.
 
 ## Decision
 

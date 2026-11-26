@@ -321,7 +321,7 @@ LoadedPart loadPart(const QString& path) {
 
         PartModel& m = out.model;
         const json& u = model.at("units");
-        m.units.system = units::systemFromName(u.value("system", std::string("MMGS"))).value_or(UnitSystem::MMGS);
+        m.units.system = units::systemFromName(u.value("system", std::string("mm"))).value_or(UnitSystem::Millimetre);
         m.units.decimals = u.value("decimals", 2);
         m.units.angleDecimals = u.value("angleDecimals", 2);
         const json& c = model.at("counters");

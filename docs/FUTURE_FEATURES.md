@@ -1,23 +1,24 @@
-# BrokenLiquid — Future Features (post-v1 parking lot)
+# BrokenLiquid: features for after v1
 
-> **Status:** Draft 1 · 2026-11-25
-> **Companion file:** [PLAN.md](PLAN.md) — the v1.0 scope, architecture and roadmap
+*Draft, November 2026. See also [PLAN.md](PLAN.md) for v1 and [LONG_TERM.md](LONG_TERM.md) for
+the bigger ideas after v2 (simulation, electrical, piping, 2D drafting, CAM and more).*
 
-Everything here is **out of scope for v1.0**. This file exists so good ideas have a home and
-don't creep into v1. The v1 architecture (command registry, persistent naming, document model,
-Python API, Qt/OCCT stack) was chosen so each item below can be added **without a rewrite**.
+Nothing in this file is in v1. It's here so good ideas have somewhere to go instead of creeping
+into the first release. The v1 design (command registry, face naming, document model, Python
+API) was chosen so each of these can be added later without rewriting what's there.
 
-## How to use this file
+## How to read this file
 
-- **Tier A — v1.x:** small to medium, high value, builds directly on v1 systems.
-- **Tier B — v2:** new modelling domains or major subsystems.
-- **Tier C — v3+:** large platforms, separate products or heavy R&D.
-- **Tier D — research / moonshots:** worth exploring, no commitment.
-- **Size:** S (days–2 wks) · M (2–6 wks) · L (1–3 months) · XL (3+ months), for one developer.
-- **Promotion rule:** to move an item into a release, write an ADR in `docs/adr/`, add it to the
-  roadmap in PLAN.md, and list what it depends on.
-- Licences listed are a starting point — **verify before adoption**. GPL tools should run as
-  separate processes so they don't affect BrokenLiquid's own licence.
+- **Tier A (v1.x):** small or medium jobs that build directly on v1.
+- **Tier B (v2):** new modelling areas or big subsystems.
+- **Tier C (v3 or later):** large pieces of work, close to separate products.
+- **Tier D (research):** worth looking into, no promises.
+- **Size**, for one developer: S is days to 2 weeks, M is 2 to 6 weeks, L is 1 to 3 months, XL is
+  more than 3 months.
+- **Moving an item into a release:** write an ADR in `docs/adr/`, add it to the roadmap in
+  PLAN.md and list what it depends on.
+- Licences listed here are a starting point and need checking. GPL tools should run as separate
+  programs so they don't affect BrokenLiquid's own licence.
 
 ---
 
@@ -25,15 +26,15 @@ Python API, Qt/OCCT stack) was chosen so each item below can be added **without 
 
 | Feature | Tier | Size | Notes |
 |---|---|---|---|
-| Gesture Wheel (right-drag radial menu) | A | S | Equivalent of SolidWorks mouse gestures; 4/8 slots per document type; reads from the command registry |
+| Gesture Wheel (right-drag radial menu) | A | S | Radial mouse-gesture menu; 4/8 slots per document type; reads from the command registry |
 | Selection breadcrumbs | A | S | Shows the hierarchy of the current selection (face → feature → body → component) |
-| Live Handles (Instant3D-style) | A | M | Drag arrows to change extrude depth, fillet radius, plane offset; rulers with snapping |
+| Live Handles (drag handles on features) | A | M | Drag arrows to change extrude depth, fillet radius, plane offset; rulers with snapping |
 | Multiple viewports (1/2/4) | A | M | Each with its own orientation and display style |
 | Toolbar and Command Bar customisation | A | M | Drag commands between tabs; save/load UI profiles |
 | Macro recorder | A | M | Record UI actions as Python code via the command registry |
-| Design Library pane | A | M | Drag-and-drop reusable parts, features and sketches from folders |
+| Parts library pane | A | M | Drag and drop reusable parts, features and sketches from folders |
 | Tags, comments and markups in the tree | B | M | Notes on features; markups exported as images/PDF |
-| Display Pane | B | S | Overview of visibility, colour, transparency per item |
+| Display overview panel | B | S | Overview of visibility, colour, transparency per item |
 | Touch and pen support | C | M | Multi-touch navigation; pen sketching |
 | Localisation (translations) | B | M | Qt Linguist; community translations; metric/imperial defaults per locale |
 | Screen-reader-friendly tree and panels | B | M | Deeper accessibility pass beyond v1 basics |
@@ -43,7 +44,7 @@ Python API, Qt/OCCT stack) was chosen so each item below can be added **without 
 
 | Feature | Tier | Size | Notes |
 |---|---|---|---|
-| Splines (B-spline/NURBS) with handles | A | M | Strong v1.1 candidate; PlaneGCS already supports B-splines |
+| Splines (B-spline/NURBS) with handles | A | M | Strong v1.1 candidate; needs new solver equations (ADR 0007) |
 | Ellipse, partial ellipse, parabola, conic | A | S | |
 | Sketch text (fonts → profiles) | A | M | OCCT `Font_BRepTextBuilder`; single-line fonts for engraving |
 | Sketch blocks | B | M | Reusable grouped sketch geometry, for layout and mechanism sketches |
@@ -84,7 +85,7 @@ Python API, Qt/OCCT stack) was chosen so each item below can be added **without 
 
 | Feature | Tier | Size | Notes |
 |---|---|---|---|
-| Base flange, edge flange, miter flange, tab, hem, jog, sketched bend | B | L | Bend allowance via K-factor / bend tables |
+| Base flange, edge flange, mitre flange, tab, hem, jog, sketched bend | B | L | Bend allowance via K-factor / bend tables |
 | Convert solid to sheet metal; insert bends | B | L | |
 | Flat pattern + DXF export for laser/waterjet | B | M | Very high value for makers; bend lines and notes on the DXF |
 | Forming tools (louvres, dimples, ribs) | C | M | |
@@ -103,10 +104,10 @@ Python API, Qt/OCCT stack) was chosen so each item below can be added **without 
 
 | Feature | Tier | Size | Notes |
 |---|---|---|---|
-| **Exploded views** with explode lines | A | M | First item after v1 — needed for assembly drawings and instructions |
+| **Exploded views** with explode lines | A | M | First thing after v1, since assembly drawings and instructions need it |
 | Advanced mates: width, symmetric, limit (distance/angle), path, linear coupler, profile centre | A | M | Same solver, new residual equations |
 | Mechanical mates: gear, rack & pinion, screw, cam, hinge, slot, universal joint | A–B | M | Coupling equations between DOFs |
-| Smart mates (Alt-drag to mate) | A | S | Infer mate type from picked geometry |
+| Drag-to-mate (hold a key and drop one part onto another) | A | S | Infer the mate type from the picked geometry |
 | Component patterns (linear, circular, pattern-driven) and mirror components | A | M | |
 | Edit part in context (top-down design) with external references | B | L | Reference management and "lock references" are the hard parts |
 | Layout sketches driving parts (skeleton modelling) | B | M | |
@@ -130,18 +131,18 @@ Python API, Qt/OCCT stack) was chosen so each item below can be added **without 
 | Exploded-view drawings with BOM | A | S | After exploded views |
 | Drawing layers, line styles editor | A | S | |
 | Better auto-dimension placement (optimisation-based) | B | L | Learn from user corrections on benchmark drawings |
-| DWG import/export | B | M | Options: ODA Drawings SDK (commercial membership) or LibreDWG (GPL — external process only) |
+| DWG import/export | B | M | Options: ODA Drawings SDK (commercial membership) or LibreDWG (GPL, separate process only) |
 | Multi-sheet PDF sets and batch printing | A | S | Through `blcli` |
 | Model-based definition (3D annotations, STEP AP242 PMI export) | C | L | OCCT XDE supports PMI data |
-| Auto-tolerancing assistant (DimXpert-like) | C | L | |
-| Tolerance stack-up analysis (TolAnalyst-like) | C | L | |
+| Auto-tolerancing assistant | C | L | |
+| Tolerance stack-up analysis | C | L | |
 | Assembly instruction documents (step-by-step exploded images) | C | M | |
 
 ## 9. Analysis and simulation
 
 | Feature | Tier | Size | Notes |
 |---|---|---|---|
-| Linear static stress (SimulationXpress-like) | B | L | Mesh with **Netgen** (LGPL) or **Gmsh** (GPL, external process); solve with **CalculiX** (GPL, external process) or **Elmer** (ElmerSolver LGPL); results plotted on the model |
+| Linear static stress (guided, single part) | B | L | Mesh with **Netgen** (LGPL) or **Gmsh** (GPL, external process); solve with **CalculiX** (GPL, external process) or **Elmer** (ElmerSolver LGPL); results plotted on the model |
 | Modal (natural frequency) analysis | B | M | Same pipeline |
 | Thermal steady-state | C | M | |
 | Motion study (kinematics) | B | L | Drive mates with motors over time using the assembly solver; plots; animation export |
@@ -157,7 +158,7 @@ Python API, Qt/OCCT stack) was chosen so each item below can be added **without 
 | Feature | Tier | Size | Notes |
 |---|---|---|---|
 | 3MF export with colours/materials | A | S | lib3mf (BSD-2) |
-| Direct "send to slicer" (PrusaSlicer, Cura, Bambu Studio) | A | S | Export + launch external app |
+| Direct "send to slicer" (common 3D-printing slicers) | A | S | Export + launch external app |
 | 2.5D CAM: pocket, profile, drill, face | C | XL | OpenCAMLib (LGPL) for toolpaths; post-processors for common controllers |
 | 3-axis surface CAM | D | XL | |
 | Laser/plasma nesting from flat patterns | C | L | |
@@ -169,7 +170,7 @@ Python API, Qt/OCCT stack) was chosen so each item below can be added **without 
 |---|---|---|---|
 | PBR materials and environment lighting in the viewport | A | M | OCCT already supports PBR shading |
 | Appearance library, decals, scenes | A–B | M | |
-| Photoreal rendering (path tracing) | B | L | Options: OCCT ray tracing, Embree (Apache-2.0) / OSPRay (Apache-2.0), or Cycles standalone (Apache-2.0); or one-click export to Blender |
+| Photoreal rendering (path tracing) | B | L | Options: OCCT ray tracing, Embree (Apache-2.0) / OSPRay (Apache-2.0), or Cycles standalone (Apache-2.0); or one-click export to an open-source 3D suite |
 | Turntable and exploded-view animations | B | M | |
 | Vulkan or Direct3D 12 renderer | C | XL | Behind the render abstraction; for very large assemblies |
 | VR/AR design review | D | L | OpenXR (Apache-2.0) |
@@ -190,9 +191,9 @@ Python API, Qt/OCCT stack) was chosen so each item below can be added **without 
 
 | Feature | Tier | Size | Notes |
 |---|---|---|---|
-| Opening native SolidWorks files (`.sldprt`/`.sldasm`) | D | XL | Proprietary formats; realistic only through a licensed commercial SDK. STEP remains the supported route |
-| Parasolid `.x_t` import | C | M | Requires a commercial translator licence |
-| JT, Creo, NX, CATIA, Inventor import | D | L | Commercial translators (e.g. via OCCT's commercial components or third parties) |
+| Opening native files of commercial CAD tools | D | XL | Proprietary formats; realistic only through licensed commercial SDKs. STEP remains the supported route |
+| Proprietary kernel exchange formats | C | M | Requires a commercial translator licence |
+| JT import | D | L | Commercial translators (e.g. via OCCT's commercial components or third parties) |
 | IFC (BIM) export | C | M | |
 | Mesh-to-solid / reverse engineering (STL/point cloud → B-rep) | D | XL | Segmentation + surface fitting |
 | STEP AP242 with PMI and full colours/layers | B | M | |
@@ -230,21 +231,23 @@ Python API, Qt/OCCT stack) was chosen so each item below can be added **without 
 
 | Idea | Why not |
 |---|---|
-| Mandatory accounts, logins or cloud licensing | Contradicts BrokenLiquid's local-first principle |
-| Telemetry on by default | Privacy; any data collection stays opt-in |
-| Copying SolidWorks icons, names, artwork or help content | Legal risk; BL has its own identity |
-| Claiming SolidWorks compatibility or affiliation | Trademark risk; describe BL as "a familiar workflow" only |
+| Required accounts, logins or cloud licensing | BrokenLiquid must always work offline, with no account |
+| Telemetry on by default | Privacy. Any data collection stays opt-in |
 
 ---
 
-## Suggested order after v1.0 (first cut)
+## Rough order after v1.0
 
-1. **v1.1 — "Comfort":** exploded views, splines, Live Handles, Gesture Wheel, breadcrumbs,
-   advanced mates, Pack & Bundle, Explorer thumbnails (if not in 1.0), macro recorder.
-2. **v1.2 — "Families":** Variants (configurations) + design tables, full Hole Builder, Standard
-   Parts Library, GD&T and revision tables, sheet set PDF export.
-3. **v1.3 — "Makers":** sheet metal with flat-pattern DXF, 3MF export, send-to-slicer, local
-   version history.
-4. **v2.0 — "Domains":** surfacing, weldments, direct editing of imported geometry, motion study,
-   Linux build.
-5. **v2.x+:** linear static FEA, photoreal rendering, PDM vaults, macOS, CAM, AI command bar.
+1. **v1.1:** exploded views, splines, Live Handles, Gesture Wheel, breadcrumbs, more mates,
+   Pack & Bundle, Explorer thumbnails (if they miss 1.0), macro recorder.
+2. **v1.2:** Variants (configurations) and design tables, the full Hole Builder, the Standard Parts
+   Library, GD&T and revision tables, multi-sheet PDF export.
+3. **v1.3:** sheet metal with flat-pattern DXF, 3MF export, send to slicer, local version history.
+4. **v2.0:** surfacing, weldments, direct editing of imported geometry, motion studies, a Linux
+   build.
+5. **v2.x and on:** basic stress analysis, photoreal rendering, project vaults, macOS, CAM, an AI
+   command bar.
+
+After v2 the work is grouped into bigger tracks (simulation, electrical, piping, 2D drafting,
+manufacturing, automation, other ways to model, sharing, version control).
+[LONG_TERM.md](LONG_TERM.md) has the details and a rough order for v3 to v5.

@@ -8,10 +8,10 @@ namespace bl::ui {
 
 // OK / Cancel buttons in the top-right corner of the graphics area while a command is running
 // (PLAN.md 7.1 "Confirm Corner"). The D key moves them next to the pointer.
-class ConfirmationCorner : public QWidget {
+class ConfirmCorner : public QWidget {
     Q_OBJECT
 public:
-    explicit ConfirmationCorner(QWidget* viewport);
+    explicit ConfirmCorner(QWidget* viewport);
 
     void showFor(bool confirm); // confirm=false: only the close (X) button
     void moveToCursor();

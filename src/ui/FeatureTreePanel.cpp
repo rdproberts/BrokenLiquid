@@ -66,8 +66,8 @@ FeatureTreePanel::FeatureTreePanel(QWidget* parent)
 
     m_root = addNode(nullptr, QStringLiteral("doc"), tr("Part1"), QStringLiteral("tree-part"));
     addNode(m_root, QStringLiteral("history"), tr("History"), QStringLiteral("tree-folder"));
-    m_bodies = addNode(m_root, QStringLiteral("bodies"), tr("Solid Bodies"), QStringLiteral("tree-folder"));
-    addNode(m_root, QStringLiteral("material"), tr("Material <not specified>"), QStringLiteral("tree-material"));
+    m_bodies = addNode(m_root, QStringLiteral("bodies"), tr("Bodies"), QStringLiteral("tree-folder"));
+    addNode(m_root, QStringLiteral("material"), tr("Material (none)"), QStringLiteral("tree-material"));
     addNode(m_root, QStringLiteral("plane.front"), tr("Front Plane"), QStringLiteral("tree-plane"));
     addNode(m_root, QStringLiteral("plane.top"), tr("Top Plane"), QStringLiteral("tree-plane"));
     addNode(m_root, QStringLiteral("plane.right"), tr("Right Plane"), QStringLiteral("tree-plane"));
@@ -274,7 +274,7 @@ void FeatureTreePanel::rebuild() {
             reselect(item);
         }
     }
-    m_bodies->setText(0, tr("Solid Bodies(%1)").arg(count));
+    m_bodies->setText(0, tr("Bodies (%1)").arg(count));
     m_bodies->setHidden(count == 0);
     applyFilter(m_filter->text());
     m_updating = false;

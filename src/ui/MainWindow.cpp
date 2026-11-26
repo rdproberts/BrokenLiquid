@@ -11,7 +11,7 @@
 #include "kernel/ShapeInfo.h"
 #include "ui/CommandBar.h"
 #include "ui/CommandRegistry.h"
-#include "ui/ConfirmationCorner.h"
+#include "ui/ConfirmCorner.h"
 #include "ui/DocumentView.h"
 #include "ui/EdgeFeatureCommand.h"
 #include "ui/ExtrudeCommand.h"
@@ -121,7 +121,7 @@ const SketchToolDef kSketchTools[] = {
 Units defaultUnits() {
     const Settings& s = Settings::global();
     Units u;
-    u.system = units::systemFromName(s.get<std::string>("units.default", "MMGS")).value_or(UnitSystem::MMGS);
+    u.system = units::systemFromName(s.get<std::string>("units.default", "mm")).value_or(UnitSystem::Millimetre);
     u.decimals = std::clamp(s.get<int>("units.decimals", 2), 0, 8);
     return u;
 }
@@ -208,7 +208,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), m_registry(std::m
     });
     key(QKeySequence(Qt::Key_D), [this] {
         if (SketchEditor* editor = sketchEditor()) {
-            editor->setTool(SketchEditor::Tool::Dimension); // D is Smart Dimension while sketching
+            editor->setTool(SketchEditor::Tool::Dimension); // D is Dimension while sketching
         } else if (m_activeView) {
             m_activeView->corner()->moveToCursor();
         }
@@ -351,7 +351,7 @@ void MainWindow::registerCommands() {
                                       : tr("Rebuilt."));
                 }
             });
-    command("tools.options", tr("Options…"), "options", QKeySequence(), tr("System options and document properties"),
+    command("tools.options", tr("Options…"), "options", QKeySequence(), tr("Application and document settings"),
             [this] { showOptions(); });
     command("window.next", tr("Next Document"), "pane-files", QKeySequence(Qt::CTRL | Qt::Key_Tab),
             tr("Switch to the next open document"), [this] {
@@ -453,10 +453,10 @@ void MainWindow::registerCommands() {
         QString label;
         const char* icon;
     } features[] = {
-        {"features.sweep", tr("Swept Boss/Base"), "sweep"},
-        {"features.loft", tr("Lofted Boss/Base"), "loft"},
-        {"features.sweepCut", tr("Swept Cut"), "sweep-cut"},
-        {"features.loftCut", tr("Lofted Cut"), "loft-cut"},
+        {"features.sweep", tr("Sweep"), "sweep"},
+        {"features.loft", tr("Loft"), "loft"},
+        {"features.sweepCut", tr("Sweep Cut"), "sweep-cut"},
+        {"features.loftCut", tr("Loft Cut"), "loft-cut"},
         {"features.hole", tr("Hole Builder"), "hole"},
         {"features.linearPattern", tr("Linear Pattern"), "linear-pattern"},
         {"features.circularPattern", tr("Circular Pattern"), "circular-pattern"},
@@ -471,16 +471,16 @@ void MainWindow::registerCommands() {
         {"features.moveCopy", tr("Move/Copy Body"), "move-copy"},
         {"features.equations", tr("Equations"), "equations"},
     };
-    command("features.extrude", tr("Extruded Boss/Base"), "extrude", QKeySequence(),
+    command("features.extrude", tr("Extrude"), "extrude", QKeySequence(),
             tr("Extrude a sketch's closed contours into a solid (uses the open, selected or newest sketch)"),
             [this] { startExtrude(false); });
-    command("features.extrudeCut", tr("Extruded Cut"), "extrude-cut", QKeySequence(),
+    command("features.extrudeCut", tr("Extrude Cut"), "extrude-cut", QKeySequence(),
             tr("Cut a sketch's closed contours out of the bodies (uses the open, selected or newest sketch)"),
             [this] { startExtrude(true); });
-    command("features.revolve", tr("Revolved Boss/Base"), "revolve", QKeySequence(),
-            tr("Turn a sketch's closed contours about its centerline into a solid"), [this] { startRevolve(false); });
-    command("features.revolveCut", tr("Revolved Cut"), "revolve-cut", QKeySequence(),
-            tr("Cut the solid a sketch's contours sweep when turned about its centerline"),
+    command("features.revolve", tr("Revolve"), "revolve", QKeySequence(),
+            tr("Turn a sketch's closed contours about its centreline into a solid"), [this] { startRevolve(false); });
+    command("features.revolveCut", tr("Revolve Cut"), "revolve-cut", QKeySequence(),
+            tr("Cut the solid a sketch's contours sweep when turned about its centreline"),
             [this] { startRevolve(true); });
     command("features.fillet", tr("Fillet"), "fillet", QKeySequence(), tr("Round model edges with a radius"),
             [this] { startEdgeFeature(doc::FeatureType::Fillet); });
@@ -502,16 +502,16 @@ void MainWindow::registerCommands() {
         QKeySequence key;
         QString tip;
     } tools[] = {
-        {"sketch.dimension", tr("Smart Dimension"), "smart-dimension", QKeySequence(),
+        {"sketch.dimension", tr("Dimension"), "dimension", QKeySequence(),
          tr("Dimension one or two entities; the type follows what you pick (D)")},
         {"sketch.line", tr("Line"), "line", QKeySequence(Qt::Key_L), tr("Draw lines, click by click (L)")},
-        {"sketch.centerline", tr("Centerline"), "centerline", QKeySequence(), tr("Draw construction lines")},
+        {"sketch.centerline", tr("Centreline"), "centerline", QKeySequence(), tr("Draw construction lines")},
         {"sketch.rectangle", tr("Corner Rectangle"), "rectangle", QKeySequence(Qt::Key_R),
          tr("Rectangle from two opposite corners (R)")},
-        {"sketch.centerRectangle", tr("Center Rectangle"), "center-rectangle", QKeySequence(),
+        {"sketch.centerRectangle", tr("Centre Rectangle"), "center-rectangle", QKeySequence(),
          tr("Rectangle from its centre and a corner")},
         {"sketch.circle", tr("Circle"), "circle", QKeySequence(Qt::Key_C), tr("Circle from its centre and radius (C)")},
-        {"sketch.arc", tr("Centerpoint Arc"), "arc", QKeySequence(Qt::Key_A), tr("Arc from centre, start and end (A)")},
+        {"sketch.arc", tr("Centre-Point Arc"), "arc", QKeySequence(Qt::Key_A), tr("Arc from centre, start and end (A)")},
         {"sketch.tangentArc", tr("Tangent Arc"), "tangent-arc", QKeySequence(),
          tr("Arc tangent to the end of a line or arc")},
         {"sketch.point", tr("Point"), "sketch-point", QKeySequence(Qt::Key_P), tr("Sketch point (P)")},
@@ -520,14 +520,14 @@ void MainWindow::registerCommands() {
         {"sketch.polygon", tr("Polygon"), "polygon", QKeySequence(), tr("Regular polygon from its centre and a corner")},
         {"sketch.fillet", tr("Sketch Fillet"), "sketch-fillet", QKeySequence(),
          tr("Round the corner between two lines; the corner's dimensions are kept")},
-        {"sketch.trim", tr("Trim Entities"), "trim", QKeySequence(Qt::Key_T),
+        {"sketch.trim", tr("Trim"), "trim", QKeySequence(Qt::Key_T),
          tr("Remove the piece of a curve up to where other curves cross it (T)")},
-        {"sketch.extend", tr("Extend Entities"), "extend", QKeySequence(), tr("Extend a line or arc to the next curve")},
-        {"sketch.offset", tr("Offset Entities"), "offset", QKeySequence(Qt::Key_O),
+        {"sketch.extend", tr("Extend"), "extend", QKeySequence(), tr("Extend a line or arc to the next curve")},
+        {"sketch.offset", tr("Offset"), "offset", QKeySequence(Qt::Key_O),
          tr("Copy curves or a whole contour at a distance, dimensioned (O)")},
-        {"sketch.mirror", tr("Mirror Entities"), "sketch-mirror", QKeySequence(),
+        {"sketch.mirror", tr("Sketch Mirror"), "sketch-mirror", QKeySequence(),
          tr("Mirror entities about a line; the copies stay symmetric")},
-        {"sketch.convert", tr("Convert Entities"), "convert", QKeySequence(),
+        {"sketch.convert", tr("Project Edges"), "convert", QKeySequence(),
          tr("Copy model edges, or all edges of a face, into the sketch")},
         {"sketch.doctor", tr("Sketch Doctor"), "issues", QKeySequence(),
          tr("Find gaps, open ends, overlaps and duplicates that stop a sketch making a clean profile")},
@@ -616,8 +616,8 @@ void MainWindow::buildMenus() {
     addAll(view, {nullptr, "window.next"});
 
     QMenu* insert = menuBar()->addMenu(tr("&Insert"));
-    QMenu* boss = insert->addMenu(tr("Boss/Base"));
-    addAll(boss, {"features.extrude", "features.revolve", "features.sweep", "features.loft"});
+    QMenu* add = insert->addMenu(tr("Add Material"));
+    addAll(add, {"features.extrude", "features.revolve", "features.sweep", "features.loft"});
     QMenu* cut = insert->addMenu(tr("Cut"));
     addAll(cut, {"features.extrudeCut", "features.revolveCut", "features.sweepCut", "features.loftCut"});
     QMenu* feats = insert->addMenu(tr("Features"));
@@ -825,7 +825,7 @@ void MainWindow::buildStatusBar() {
     m_statusUnits->setPopupMode(QToolButton::InstantPopup);
     m_statusUnits->setAutoRaise(true);
     auto* menu = new QMenu(m_statusUnits);
-    for (UnitSystem s : {UnitSystem::MMGS, UnitSystem::CGS, UnitSystem::MKS, UnitSystem::IPS}) {
+    for (UnitSystem s : {UnitSystem::Millimetre, UnitSystem::Centimetre, UnitSystem::Metre, UnitSystem::Inch}) {
         QAction* a = menu->addAction(QStringLiteral("%1  (%2)").arg(QString::fromLatin1(units::systemName(s)),
                                                                    QString::fromLatin1(units::systemDescription(s))));
         a->setData(static_cast<int>(s));
@@ -902,8 +902,8 @@ DocumentView* MainWindow::addDocument(std::unique_ptr<doc::Document> document) {
                                  "Updating the graphics driver usually fixes this.")
                                   .arg(error));
     });
-    connect(view->corner(), &ConfirmationCorner::accepted, this, [this] { finishCommand(true); });
-    connect(view->corner(), &ConfirmationCorner::cancelled, this, [this] { finishCommand(false); });
+    connect(view->corner(), &ConfirmCorner::accepted, this, [this] { finishCommand(true); });
+    connect(view->corner(), &ConfirmCorner::cancelled, this, [this] { finishCommand(false); });
     connect(d, &doc::Document::historyChanged, this, [this, view] { updateTabText(view); });
     connect(d, &doc::Document::titleChanged, this, [this, view] { updateTabText(view); });
 
@@ -1771,7 +1771,7 @@ void MainWindow::showOptions(bool documentPage) {
     const Units current = d ? d->model().units : Units{};
     OptionsDialog dialog(d ? &current : nullptr, d ? d->title() : QString(), this);
     if (documentPage) {
-        dialog.showDocumentProperties();
+        dialog.showDocumentSettings();
     }
     if (dialog.exec() != QDialog::Accepted) {
         return;
@@ -2042,7 +2042,7 @@ void MainWindow::runDemo(const QString& demo) {
         clicks({{10, 15}, {10, 40}, {0, 40}, {0, 0}});
         e->setTool(Tool::Circle);
         clicks({{40, 5}, {42.5, 5}});
-        // Smart Dimension: pick, place, accept the measured value.
+        // Dimension: pick, place, accept the measured value.
         e->setTool(Tool::Dimension);
         const Clicks dimensions[] = {
             {{30, 0}, {30, -9}},          // overall width 60

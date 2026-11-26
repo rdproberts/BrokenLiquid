@@ -22,7 +22,7 @@ Options looked at:
 - **SQLite**: transactional and fast for partial writes, but opaque to inspect, and parts are
   small enough to write whole.
 - **A ZIP container** with JSON for the model and native BRep for geometry, as `.3mf`, `.docx` and
-  FreeCAD's `.FCStd` do.
+  several open-source CAD formats do.
 
 ## Decision
 

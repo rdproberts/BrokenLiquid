@@ -69,7 +69,7 @@ add_library(bl_ui STATIC
     ui/ResourcePane.cpp      ui/ResourcePane.h
     ui/ViewHud.cpp           ui/ViewHud.h
     ui/PropertyPanel.cpp     ui/PropertyPanel.h
-    ui/ConfirmationCorner.cpp ui/ConfirmationCorner.h
+    ui/ConfirmCorner.cpp ui/ConfirmCorner.h
     ui/InteractiveCommand.h
     ui/DocumentView.cpp      ui/DocumentView.h
     ui/MeasureCommand.cpp    ui/MeasureCommand.h

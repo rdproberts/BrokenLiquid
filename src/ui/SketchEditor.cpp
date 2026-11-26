@@ -1262,12 +1262,12 @@ void SketchEditor::convertShape(const TopoDS_Shape& shape) {
         }
     }
     if (added == 0) {
-        m_host.showStatus(tr("Nothing to convert there: pick a model edge or face."));
+        m_host.showStatus(tr("Nothing to project there: pick a model edge or face."));
         return;
     }
     m_undo.push_back(std::move(before));
     m_redo.clear();
-    m_host.showStatus(tr("Converted %n entity(s); they follow the model and are held fixed.", nullptr, added));
+    m_host.showStatus(tr("Projected %n curve(s); they follow the model and are held fixed.", nullptr, added));
     commitEdit();
 }
 
@@ -1298,7 +1298,7 @@ QString SketchEditor::issueText(const Issue& issue) const {
     return text;
 }
 
-// --- Smart Dimension ------------------------------------------------------------------------------------
+// --- Dimension ------------------------------------------------------------------------------------------
 
 void SketchEditor::dimensionClick(P2 at) {
     const Hit h = hitAt(at, false);
@@ -2159,7 +2159,7 @@ void SketchEditor::rebuildPanel() {
         break;
     }
     case Tool::Mirror: {
-        panel.setMessage(tr("Click the entities to mirror and a centerline to mirror about (or use Pick mirror "
+        panel.setMessage(tr("Click the entities to mirror and a centreline to mirror about (or use Pick mirror "
                             "line for a solid line), then press Apply or Enter. Copies stay symmetric."));
         PanelGroup* g = panel.addGroup(tr("Options"));
         g->addText(tr("%n entity(s) to mirror", nullptr, static_cast<int>(m_toolPicks.size())));

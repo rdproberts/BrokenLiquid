@@ -57,7 +57,7 @@ private:
 };
 
 // Sketch mode (PLAN.md 6.6, 7.5): edits a copy of one sketch feature in the graphics area, with
-// drawing tools, snaps and automatic relations, Smart Dimension, relations and status colours.
+// drawing tools, snaps and automatic relations, dimensions, relations and status colours.
 // The sketch has its own undo history while open; OK (Exit Sketch) writes it back to the document
 // as one undoable change, Cancel discards it.
 class SketchEditor : public InteractiveCommand, public render::ViewerInput {
@@ -122,7 +122,7 @@ public:
     // Offset / Mirror: apply to the picked entities (Enter does the same).
     bool applyOffset();
     bool applyMirror();
-    // Convert Entities: copies a model edge, or every edge of a face, into the sketch (held fixed).
+    // Project Edges: copies a model edge, or every edge of a face, into the sketch (held fixed).
     void convertShape(const TopoDS_Shape& shape);
     // Sketch Doctor: repairs every problem it can.
     void repairAll();

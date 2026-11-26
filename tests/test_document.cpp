@@ -69,12 +69,12 @@ TEST(Document, UndoRestoresEditedBodies) {
         return true;
     });
     d.transact(QStringLiteral("Change Units"), [&](doc::PartModel& m) {
-        m.units.system = UnitSystem::IPS;
+        m.units.system = UnitSystem::Inch;
         return true;
     });
-    EXPECT_EQ(d.model().units.system, UnitSystem::IPS);
+    EXPECT_EQ(d.model().units.system, UnitSystem::Inch);
     d.undo();
-    EXPECT_EQ(d.model().units.system, UnitSystem::MMGS);
+    EXPECT_EQ(d.model().units.system, UnitSystem::Millimetre);
     d.undo();
     EXPECT_TRUE(d.model().body(id)->visible);
     d.undo();

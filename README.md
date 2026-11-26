@@ -1,98 +1,209 @@
-# BrokenLiquid
+<!--
+  Logo: replace docs/images/logo.png with the final artwork (square PNG, 256 px or larger
+  looks best). It is currently a copy of the app icon in resources/app/.
+-->
+<p align="center">
+  <img src="docs/images/logo.png" alt="BrokenLiquid logo" width="160">
+</p>
 
-Free, local, history-based parametric 3D CAD for Windows, with a workflow SolidWorks users will
-find familiar: sketch → feature → part → assembly → automatic engineering drawing.
+<h1 align="center">BrokenLiquid</h1>
 
-**Status:** Phase 3 (part modelling) in progress. Phases 1 and 2 are done: STEP files open as
-parts (one tab each), you can measure distances, angles, lengths and areas, cut the model with a
-section view, and rename, hide, recolour or delete bodies with full undo/redo, with the Home
-screen, Options dialog and status-bar units switcher.
+<p align="center">
+  <b>Free parametric 3D CAD for Windows.</b><br>
+  Sketch, model, assemble and make drawings, all on your own machine.
+</p>
 
-Part modelling so far: **Extruded Boss/Base** and **Extruded Cut** from a sketch's closed regions
-(Blind, Through All, Mid Plane, reverse, a second direction, merge or new body), **Revolved
-Boss/Base** and **Revolved Cut** about a centerline (angle, mid plane, reverse), and **Fillet** and
-**Chamfer** (equal or two distances) on picked edges, all with live previews. A rebuild engine
-re-runs only what changed, and the Feature Tree has the history, edit, rename, suppress, delete and
-a rollback bar. Sketches on faces and fillet/chamfer edges follow the model when upstream features
-change, through persistent face and edge names ([ADR 0003](docs/adr/0003-persistent-naming.md),
-checked by a naming torture suite); a face or edge that really disappeared turns the feature red
-instead of being guessed. Parts save and open as native **`.blpart`** files
-([ADR 0008](docs/adr/0008-native-file-format.md)), with a `.bak` of the previous save.
+<p align="center">
+  <img alt="Status: pre-alpha" src="https://img.shields.io/badge/status-pre--alpha-orange">
+  <img alt="Platform: Windows 10/11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6">
+  <img alt="C++20, Qt 6, Open CASCADE 8" src="https://img.shields.io/badge/C%2B%2B20-Qt%206%20%C2%B7%20Open%20CASCADE%208-555">
+  <img alt="Licence: MIT" src="https://img.shields.io/badge/licence-MIT-blue">
+</p>
 
-![Part: the bracket extruded 20 mm, a hole cut from a sketch on its end face, corners filleted and hole edges chamfered](docs/images/part.png)
+---
 
-![Revolve: a flanged shaft revolved from a half profile, with a chamfered end and filleted shoulders](docs/images/revolve.png)
+## Why BrokenLiquid?
 
-Sketching works on the Front, Top and Right planes or a flat face: lines (with automatic
-horizontal, vertical, coincident, midpoint and tangent relations from snapping), centerlines,
-corner and centre rectangles, straight slots, circles, centre-point and tangent arcs, polygons,
-points, Smart Dimension, Add Relations, construction geometry, dragging within the remaining
-freedom, and blue / black / red status colours from BrokenLiquid's own 2D constraint solver
-([ADR 0007](docs/adr/0007-sketch-solver-own.md)). Editing tools keep the sketch constrained:
-sketch fillets keep the corner as a virtual sharp, trim and extend, offset (dimensioned, whole
-contours), mirror (copies stay symmetric) and convert entities (model edges or a face's edges).
-Closed regions are shaded, and the Sketch Doctor finds gaps, open ends, overlaps and duplicates and
-repairs what it can. Sketches are saved in the Feature Tree and can be edited, renamed, hidden and
-deleted with undo. Other modelling commands are visible but marked "Coming in Phase N".
+Did you learn 3D CAD at school, at university or at work, and then lose access or get put off by
+expensive subscriptions the moment you left? The professional tools cost a lot, many of them now
+need an online account just to start, and the free options usually mean learning a completely
+different way of working. BrokenLiquid is being made to bring a familiar, intuitive and always free
+way to continue 3D modelling without breaking the bank.
 
-![Sketch: an L bracket profile drawn and fully defined](docs/images/sketch.png)
+**Our Goals:**
 
-![Sketch tools: fillet, inward offset, slot and polygon, closed regions shaded, Sketch Doctor](docs/images/sketch-tools.png)
+- Free-to-use and fully offline — no account, no login, no telemetry
+- Keep your files on your own disk, in an open format
+- Maintain a familiar feel for anyone who has used a mainstream modeller - no need to learn from
+  scratch
+- Modular, robust and fast - use what you need
 
-![Splash screen](docs/images/splash.png)
+## Plans for V1
 
-![Measure: distance between two picked faces](docs/images/measure.png)
+**Parts - Assemblies - Drawings - DONE WELL**
 
-![Section view through both holes, cut faces filled](docs/images/section.png)
+| Area | What's planned |
+|---|---|
+| **Sketching** | 2D sketches on planes and flat faces, relations, dimensions, our own constraint solver with status colours, trim, extend, offset, mirror, and edges copied from the model |
+| **Parts** | Extrude, revolve, sweep and loft (adding or cutting material), fillet, chamfer, shell, draft, holes, linear and circular patterns, mirror, reference geometry, combine, move/copy body, equations, materials, mass properties, appearances |
+| **Assemblies** | Insert components, standard mates with clear error messages, drag parts within their remaining freedom, interference check, bill of materials |
+| **Drawings** | ISO and ANSI sheets, standard, projected, section and detail views, model dimensions, auto-dimensioning, hole callouts, BOM with balloons, one-click Auto Drawing, PDF, DXF and SVG export |
+| **Files** | Our own `.blpart`, `.blasm` and `.bldraw` files, STEP and IGES in and out, STL, OBJ and glTF export |
+| **Automation** | A Python API (anything you can click, a script can do) and a command line for batch jobs |
+| **Install** | Windows 10/11 installer and a portable zip |
 
-![Home screen with first-run setup](docs/images/home.png)
+Not in v1: sheet metal, weldments, surfacing, configurations, simulation, CAM and rendering.
+They're on the list for later (see [After v1](#after-v1)). The full plan is in
+[docs/PLAN.md](docs/PLAN.md).
 
-## Documents
+## Where it's at
 
-- [docs/PLAN.md](docs/PLAN.md) — research, v1.0 scope, technology decision, architecture,
-  UI spec, splash screen, packaging, testing and roadmap.
-- [docs/FUTURE_FEATURES.md](docs/FUTURE_FEATURES.md) — everything deliberately left out of v1,
-  grouped by area with tier and size.
-- [docs/adr/](docs/adr/README.md) — architecture decision records, including the Phase 0 spike
-  results.
+It's early days, and BrokenLiquid isn't ready for real work yet. We're building it in phases, and
+each phase has to run and pass its tests before the next one starts.
 
-## Stack
+| # | Phase | What's in it | Status |
+|---|---|---|---|
+| 0 | Foundations | Build system, 3D viewer in a Qt window, four technical experiments | Done |
+| 1 | App shell | Main window, command bar, feature tree, property panels, home screen, themes, undo/redo, STEP import, measure, section view | Done |
+| 2 | Sketcher | Sketch entities, relations, dimensions, the 2D solver, editing tools, regions, Sketch Doctor | Done |
+| 3 | Part modelling | Features, rebuilds, stable face and edge names, native files | In progress |
+| 4 | Assemblies | Components, mates, interference, BOM | Planned |
+| 5 | Drawings | Views, hidden lines, annotations, Auto Drawing, PDF/DXF | Planned |
+| 6 | Polish and release | Python console, tutorials, installer, performance, public beta, then v1.0 | Planned |
 
-C++20 · Qt 6 Widgets · Open CASCADE Technology 8 · Eigen · spdlog · nlohmann/json · GoogleTest ·
-CMake + Ninja + vcpkg. Later: embedded Python 3, Inno Setup installer.
+In phase 3 so far you can extrude and revolve sketches to add or cut material, add fillets and
+chamfers, sketch on the faces of a model, and edit, suppress or roll back any feature. Faces and
+edges keep their names when you change something earlier in the history, so a fillet stays on
+the edge you picked. Parts save as `.blpart` files.
+
+Still to do in phase 3: sweep, loft, shell, draft, holes, patterns, mirror, reference geometry,
+equations, materials, mass properties, exports, autosave, and modelling our ten test parts.
+
+### Screenshots
+
+<table>
+  <tr>
+    <td><img width="380" src="docs/images/part.png" alt="Bracket: extruded, a hole cut from a sketch on its end face, corners filleted and hole edges chamfered"></td>
+    <td><img width="380" src="docs/images/revolve.png" alt="Flanged shaft revolved from a half profile, with a chamfered end and filleted shoulders"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Extrude, cut, fillet and chamfer</sub></td>
+    <td align="center"><sub>Revolve around a centreline</sub></td>
+  </tr>
+  <tr>
+    <td><img width="380" src="docs/images/sketch.png" alt="An L bracket profile drawn and fully defined"></td>
+    <td><img width="380" src="docs/images/sketch-tools.png" alt="Sketch fillet, inward offset, slot and polygon, closed regions shaded, Sketch Doctor"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>A fully defined sketch</sub></td>
+    <td align="center"><sub>Sketch tools and the Sketch Doctor</sub></td>
+  </tr>
+  <tr>
+    <td><img width="380" src="docs/images/section.png" alt="Section view through both holes, cut faces filled"></td>
+    <td><img width="380" src="docs/images/measure.png" alt="Distance measured between two picked faces"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Section view</sub></td>
+    <td align="center"><sub>Measuring</sub></td>
+  </tr>
+  <tr>
+    <td><img width="380" src="docs/images/home.png" alt="Home screen with first-run setup"></td>
+    <td><img width="380" src="docs/images/splash.png" alt="Splash screen"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Home screen</sub></td>
+    <td align="center"><sub>Splash screen</sub></td>
+  </tr>
+</table>
+
+## After v1
+
+We'd rather ship a solid v1 than a half-finished everything, so the bigger ideas wait their turn.
+The near-term list lives in [docs/FUTURE_FEATURES.md](docs/FUTURE_FEATURES.md):
+
+- **v1.1:** exploded views, splines, drag handles on features, a radial gesture menu, more mate
+  types, a macro recorder
+- **v1.2:** configurations and design tables, a full hole tool, a standard parts library
+  (fasteners, bearings), GD&T and revision tables
+- **v1.3:** sheet metal with flat-pattern DXF for laser cutting, 3MF export and send-to-slicer,
+  local version history
+- **v2:** surfacing, weldments, editing imported geometry directly, motion studies, a Linux build
+
+Further out, we'd like BrokenLiquid to handle more of the work that happens around a 3D model.
+[docs/LONG_TERM.md](docs/LONG_TERM.md) goes into detail, but roughly:
+
+- **Simulation:** stress, vibration and heat checks, and later motion, fatigue and flow, using
+  open-source solvers
+- **Electrical:** keep a PCB in sync with its enclosure, route cables, and eventually schematics
+  and wiring harnesses
+- **Routing:** pipes, tubes and ducts with fittings, cut lists and bend tables
+- **2D drafting:** a proper 2D workspace with layers, blocks and DXF/DWG
+- **Manufacturing:** 3D printing hand-off, inspection drawings, 2.5D CAM, cost estimates
+- **Automation:** Python rules, custom features, and calculators that size and model shafts,
+  gears and bolts
+- **New ways to model:** direct editing, mesh bodies, freeform shapes, scan to part
+- **Sharing:** a free viewer, assembly instructions, rendering
+- **Versions:** history, branching and merging, without needing a cloud
+
+Whatever gets added has to work offline and fit into the same parts, assemblies and drawings.
+
+## Docs
+
+- [docs/PLAN.md](docs/PLAN.md): the v1 plan (scope, architecture, UI, testing and roadmap)
+- [docs/FUTURE_FEATURES.md](docs/FUTURE_FEATURES.md): features saved for after v1
+- [docs/LONG_TERM.md](docs/LONG_TERM.md): longer-term ideas and the open-source tools that could
+  help
+- [docs/adr/](docs/adr/README.md): design decisions and why we made them
+
+## Built with
+
+C++20, Qt 6, [Open CASCADE](https://dev.opencascade.org/) 8, Eigen, spdlog, nlohmann/json and
+GoogleTest, built with CMake, Ninja and vcpkg. Python scripting and an installer come later.
 
 ## Building on Windows
 
-Needs Visual Studio 2022 (or newer) with *Desktop development with C++*, CMake 3.27+, Git, and a
-vcpkg checkout (`VCPKG_ROOT`). The first configure builds Qt and Open CASCADE from source, which
-takes one to two hours; later builds reuse the vcpkg binary cache.
+You'll need Visual Studio 2022 or newer (with the *Desktop development with C++* workload), CMake
+3.27+ and Git. The first build compiles Qt and Open CASCADE from source through vcpkg, so expect
+it to take an hour or two. After that it's quick.
 
 ```powershell
 git clone https://github.com/microsoft/vcpkg.git .toolchain\vcpkg
 .toolchain\vcpkg\bootstrap-vcpkg.bat -disableMetrics
 $env:VCPKG_ROOT = "$PWD\.toolchain\vcpkg"
-./scripts/build.ps1 -Test        # configure + build preset "dev" + run tests and spikes
-./scripts/build.ps1 -Run         # build and launch
+./scripts/build.ps1 -Test        # build and run the tests
+./scripts/build.ps1 -Run         # build and start the app
 ```
 
-Everything a build needs stays inside the project folder, all git-ignored: `.toolchain/`
-(vcpkg, its binary cache, temp files for long builds), `vcpkg_installed/` (built dependencies) and
-`build/`. Machine-specific paths go in an untracked `CMakeUserPresets.json` with a preset that
-inherits `dev`, plus `scripts/env.local.ps1`; `build.ps1` picks them up automatically.
+Everything the build needs stays inside the project folder and is git-ignored (`.toolchain/`,
+`vcpkg_installed/` and `build/`). If you need machine-specific paths, put them in an untracked
+`CMakeUserPresets.json` (with a preset that inherits `dev`) or in `scripts/env.local.ps1`, and
+`build.ps1` will pick them up.
 
-Useful app switches: `BrokenLiquid.exe part.step`, `--nosplash`, `--new-instance`,
-`--smoke-test out.png` (opens the files, renders, saves a window screenshot and exits; needs a
-real OpenGL 3.3+ GPU, so it is not run on hosted CI).
+A few command-line options are handy: open a file straight away (`BrokenLiquid.exe part.step` or
+`part.blpart`), skip the splash with `--nosplash`, force a second window with `--new-instance`, or
+take a screenshot and quit with `--smoke-test out.png` (this needs a real GPU with OpenGL 3.3+).
 
-## Layout
+## What's where
 
 ```
-src/core     logging, settings, paths, crash dumps (no Qt)
-src/kernel   OCCT services: STEP import/export, shape statistics
-src/render   OCCT viewer inside a QOpenGLWidget
-src/ui       main window, Command Bar, Feature Tree, Resource Pane, View HUD, themes, icons
-src/app      entry point, splash screen, single-instance handling
-tests/       GoogleTest unit tests
-spikes/      Phase 0 experiments (naming, HLR drawings, mate solver); results in docs/adr/
-resources/   icons (generated by scripts/make_icons.py), app icon, themes
+src/core     logging, settings, paths, units, crash dumps (no Qt)
+src/sketch   2D sketch model and constraint solver
+src/kernel   geometry: features, face and edge naming, measuring, STEP import/export
+src/doc      part document, rebuilds, .blpart files
+src/render   3D viewer and sketch display
+src/ui       main window, command bar, feature tree, property panels, commands, themes, icons
+src/app      startup, splash screen, single-instance handling
+tests/       unit tests
+spikes/      early experiments (results are in docs/adr/)
+resources/   icons, app icon, themes
+docs/        plans, decisions and images
 ```
+
+## Contributing
+
+It's a small project at the moment. Bug reports, ideas and feedback are very welcome in the
+issues. We'll open up to code contributions once there are some contribution guidelines.
+
+## Licence
+
+MIT, see [LICENSE](LICENSE). Qt and Open CASCADE are LGPL and are linked dynamically.
